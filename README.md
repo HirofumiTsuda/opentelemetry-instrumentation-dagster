@@ -26,9 +26,10 @@ The naive approach -- reach into an already-built `AssetsDefinition` and swap
 its compute function -- means touching non-public attributes of an object
 that was never meant to be mutated after construction. Instead:
 
-1. Patch `dagster.asset` / `dagster.op` (public, stable decorator factories)
-   so that each, when called, first wraps the incoming compute function with
-   `dagster_otel.traced()` before handing it to the real decorator.
+1. Patch `dagster.asset` / `dagster.op` / `dagster.multi_asset` (public,
+   stable decorator factories) so that each, when called, first wraps the
+   incoming compute function with `dagster_otel.traced()` before handing it
+   to the real decorator.
 2. This relies on decorator-application order: if the compute function is
    already wrapped *before* `@asset`/`@op` builds the `AssetsDefinition`/
    `OpDefinition`, no post-hoc mutation is ever needed -- same trick
@@ -146,11 +147,44 @@ docstring example: `def slack_files_table(): return store_files(fetch_files_
 from_slack())`, no `context` param). `traced()` assumes a `(context, ...)`
 runtime call; applying it to a `graph_asset`'s compose function would be
 wrong, not just unnecessary -- there's no per-run invocation to wrap, and the
-signature doesn't even match. `asset`/`op` must be the only patch targets;
-`graph_asset` needs to pass through completely unpatched. (Tracing a
+signature doesn't even match. `asset`/`op`/`multi_asset` are the patch
+targets; `graph_asset` needs to pass through completely unpatched. (Tracing a
 `graph_asset`'s actual execution already works today, for free, by patching
 each of the individual `@op`s it composes -- those really do run with a
 `context` at execution time.)
+
+### `multi_asset` covers `@dbt_assets` for free -- but only at `traced()`'s granularity
+
+`dagster_dbt.dbt_assets` (checked `dagster_dbt/asset_decorator.py`) isn't its
+own independent code path -- it just calls `dagster.multi_asset(specs=...,
+...)` and returns whatever that returns:
+
+```python
+# dagster_dbt/asset_decorator.py
+return multi_asset(
+    name=name,
+    specs=specs,
+    ...
+)
+```
+
+So patching `dagster.multi_asset` (needed anyway -- it's keyword-only,
+`def multi_asset(*, outs=None, ...)`, no bare form, so it only ever exercises
+the parameterized branch of `_wrap_decorator_factory`, no extra dispatch
+logic needed) transitively covers `@dbt_assets` too, with zero dbt-specific
+code in this package. `dagster_dbt` calling the patched `multi_asset` "just
+works" the same way any other caller of a patched function does.
+
+The gap: `dagster-otel` has a dedicated `traced_dbt()` (not just `traced()`)
+for exactly this case, which additionally opens a child span per dbt node
+(model/seed/test) -- real per-node granularity, not one span for the whole
+dbt run. Auto-applying plain `traced()` via the `multi_asset` patch gives
+every dbt run exactly one span, same as any other multi_asset -- correct, but
+coarser than what a `dagster-otel` user gets by writing `@traced_dbt()`
+explicitly. Closing that gap would need this package to detect "this
+`multi_asset` call is actually a `@dbt_assets` call" (e.g. a `manifest`
+kwarg, or checking the call site) and dispatch to `traced_dbt()` instead --
+not yet designed.
 
 ## Try it (once it exists)
 
