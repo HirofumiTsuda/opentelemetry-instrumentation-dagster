@@ -36,11 +36,17 @@ that was never meant to be mutated after construction. Instead:
    this package instead of by the user.
 3. **Timing matters**: the patch has to be in place before the user's
    `Definitions` module does `from dagster import asset`, or it's patching a
-   name nothing still refers to. Real `opentelemetry-instrumentation-*`
-   packages solve this with a launcher (`opentelemetry-instrument python
-   app.py`) that patches first, then imports the target app -- this package
-   will need the same, or an equivalent (e.g. requiring `dagster.yaml`/the
-   workspace loader to import this package before the `Definitions` module).
+   name nothing still refers to. No launcher needs to be built here, though --
+   `opentelemetry-instrument` (from the `opentelemetry-instrumentation`
+   package this depends on) already *is* that launcher, generically, for any
+   registered instrumentor. `_load_instrumentors()` just iterates
+   `entry_points(group="opentelemetry_instrumentor")` and calls
+   `.instrument()` on each -- exactly the group this package's `pyproject.toml`
+   registers `DagsterInstrumentor` under. So the only thing to actually build
+   is `DagsterInstrumentor._instrument()` itself; running
+   `opentelemetry-instrument dagster dev -f definitions.py` is enough to pick
+   it up, timing included (see below for why that also covers `multiprocess`
+   subprocesses, and why it doesn't for `k8s_job_executor`).
 
 ### Timing gets harder with `multiprocess`/`k8s_job_executor`
 
