@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.egg-info/
+build/
+dist/
+.venv/
+.python-version
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# env file
+.env
+
+# Private working log, not meant to be shared.
+TODO.md
+
+# Editor/IDE
+.vscode/

@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "opentelemetry-instrumentation-dagster"
+dynamic = ["version"]
+description = "Auto-instrumentation for Dagster ops/assets, no @traced() decorator required -- the opt-in companion to dagster-otel"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Hirofumi Tsuda" },
+]
+keywords = [
+    "dagster",
+    "opentelemetry",
+    "otel",
+    "tracing",
+    "observability",
+    "auto-instrumentation",
+]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Monitoring",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    # dagster-otel does the actual span creation (@traced()) -- this package's only
+    # job is to apply that decorator to the user's ops/assets automatically, by
+    # patching dagster.asset/op/etc. before the user's Definitions module imports
+    # them. See README.md for why this is a separate package, not folded into
+    # dagster-otel itself.
+    "dagster-otel",
+    "dagster >= 1.5",
+    "opentelemetry-instrumentation",
+]
+
+[dependency-groups]
+test = [
+    "pytest >= 7",
+]
+lint = [
+    "mypy==2.3.1",
+    "pyright==1.1.414",
+]
+
+[project.entry-points.opentelemetry_instrumentor]
+# Registers this package with opentelemetry-instrument's auto-discovery -- the entry
+# point group name (not the key) is what opentelemetry-instrument looks for; matches
+# every other opentelemetry-instrumentation-* package's convention.
+dagster = "opentelemetry.instrumentation.dagster:DagsterInstrumentor"
+
+[project.urls]
+Home = "https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster"
+
+[tool.hatch.version]
+path = "src/opentelemetry/instrumentation/dagster/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/opentelemetry"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
