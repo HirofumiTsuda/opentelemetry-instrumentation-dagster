@@ -42,6 +42,49 @@ that was never meant to be mutated after construction. Instead:
    will need the same, or an equivalent (e.g. requiring `dagster.yaml`/the
    workspace loader to import this package before the `Definitions` module).
 
+### Timing gets harder with `multiprocess`/`k8s_job_executor`
+
+`dagster-otel` already established that each step in a `multiprocess`-executed
+run runs in its own process (see its own README/design.md) -- what that means
+here is Dagster's `MultiprocessExecutor` defaults to
+`start_method="spawn"` (checked in `dagster/_core/executor/multiprocess.py`),
+so each step is a *fresh* interpreter that re-imports the `Definitions`
+module from scratch. A patch applied only in the original `dagster dev`
+process doesn't carry over on its own.
+
+It turns out `opentelemetry-instrument` already solves exactly this, just not
+obviously: it doesn't patch things directly in-process. Instead it inserts
+its own directory (containing a two-line `sitecustomize.py`) at the front of
+the `PYTHONPATH` environment variable, then `execl()`s into the target
+command. Python auto-imports any module named `sitecustomize` found on
+`sys.path` at interpreter startup -- and since `PYTHONPATH` is an environment
+variable, every child process that inherits the environment (which `spawn`
+does, by default) re-triggers the same `sitecustomize.py` → re-applies every
+registered instrumentor, independently, before that child re-imports
+`Definitions`. No explicit re-wrapping needed per subprocess -- it rides on
+Python's own site-import mechanism plus ordinary environment inheritance.
+
+**This breaks under `k8s_job_executor`.** Checked `dagster_k8s/executor.py`
+(dagster-io/dagster): each step becomes a genuinely separate Kubernetes Job/
+Pod, and the env vars forwarded into it are an explicit, fixed list --
+`execute_step_args.get_command_env()` (things like `DAGSTER_HOME`) plus
+`DAGSTER_RUN_JOB_NAME`/`DAGSTER_RUN_STEP_KEY`. `PYTHONPATH` isn't among them,
+and there's no OS-level environment inheritance between the orchestrating
+process and a brand new Pod's container the way there is for a `spawn`ed
+local subprocess. The `sitecustomize.py` trick's dynamic propagation doesn't
+apply here at all.
+
+The practical fix for k8s: don't rely on propagation -- set `PYTHONPATH`
+*statically*, since the package is already `pip install`ed into the step
+container's image and its `sitecustomize.py` location inside site-packages is
+fixed and known ahead of time. Either bake `ENV PYTHONPATH=...` into the
+Dockerfile, or add `PYTHONPATH` explicitly to `k8s_job_executor`'s `env_vars`
+run config. This is the same shape as how the OpenTelemetry Operator's actual
+Kubernetes auto-instrumentation feature works (a mutating webhook injects
+`PYTHONPATH` directly into the Pod spec) -- static injection into the Pod
+spec, not dynamic process inheritance, is the normal pattern for k8s
+specifically.
+
 ### Why patch the decorators, not the actual invoke point
 
 `opentelemetry-instrumentation-click` (see `opentelemetry-python-contrib`)
