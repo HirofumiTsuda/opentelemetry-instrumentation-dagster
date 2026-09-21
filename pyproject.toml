@@ -47,6 +47,13 @@ dependencies = [
 test = [
     "pytest >= 7",
 ]
+# Only needed to verify dbt_assets rides along on the multi_asset patch (see
+# tests/test_dbt_assets.py) -- not running real dbt, so dbt-duckdb etc. aren't
+# needed, just the dbt_assets decorator itself. Version matches dagster-otel's own
+# pin against the same dagster version this project also targets.
+dbt = [
+    "dagster-dbt==0.29.22",
+]
 lint = [
     "mypy==2.3.1",
     "pyright==1.1.414",

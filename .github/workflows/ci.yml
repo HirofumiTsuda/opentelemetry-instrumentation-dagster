@@ -14,7 +14,10 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.1.0
 
-      - run: uv sync --group test
+      # dbt group: tests/test_dbt_assets.py imports dagster_dbt (verifying dbt_assets
+      # shares the patched multi_asset, not running real dbt -- see that file's own
+      # docstring for why dbt-duckdb etc. aren't needed here).
+      - run: uv sync --group test --group dbt
 
       - run: uv run pytest
 
@@ -28,9 +31,9 @@ jobs:
       - run: uvx ruff@0.16.7 check .
       - run: uvx ruff@0.16.7 format --check .
 
-      # Both groups, not just lint: mypy checking tests/ needs pytest importable too
-      # (conftest.py does `import pytest`), same reasoning as dagster-otel's own CI.
-      - run: uv sync --group lint --group test
+      # All three groups, not just lint: mypy/pyright checking tests/ needs pytest
+      # and dagster_dbt importable too, same reasoning as the test job above.
+      - run: uv sync --group lint --group test --group dbt
 
       - run: uv run mypy src/ tests/
       - run: uv run pyright src tests

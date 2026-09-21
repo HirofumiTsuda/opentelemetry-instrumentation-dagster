@@ -1,6 +1,10 @@
 # opentelemetry-instrumentation-dagster
 
-**Status: scaffold only, nothing implemented yet.**
+**Status: early -- `@op`/`@asset`/`@multi_asset` (and `@dbt_assets`, which
+rides along on `@multi_asset` for free) are patched and verified against
+real Dagster execution. `@graph_asset` deliberately excluded. Not yet
+released to PyPI; not yet verified under `multiprocess`/`k8s_job_executor`
+timing.**
 
 Auto-instrumentation for Dagster ops/assets -- zero-code tracing, no
 `@traced()` decorator required. The opt-in companion to
@@ -173,18 +177,30 @@ So patching `dagster.multi_asset` (needed anyway -- it's keyword-only,
 the parameterized branch of `_wrap_decorator_factory`, no extra dispatch
 logic needed) transitively covers `@dbt_assets` too, with zero dbt-specific
 code in this package. `dagster_dbt` calling the patched `multi_asset` "just
-works" the same way any other caller of a patched function does.
+works" the same way any other caller of a patched function does -- **with
+one real caveat**: `dagster_dbt/asset_decorator.py` does `from dagster
+import ... multi_asset ...` at its own module import time, a one-time name
+binding, not a live link back to `dagster`'s attribute. So this only works
+if `dagster_dbt` gets imported *after* `instrument()` has already run (the
+supported order, since `opentelemetry-instrument`'s `sitecustomize.py` runs
+before any user code imports anything) -- if `dagster_dbt` is somehow
+already imported first, its own `multi_asset` reference is permanently
+frozen to the pre-patch function. Both directions are verified directly, not
+just asserted, in `tests/test_dbt_assets.py` (not against a real dbt
+project/manifest -- `dagster-otel`'s own test suite already covers real dbt
+materialization end to end; this only needs to prove the reference-sharing
+mechanism itself).
 
-The gap: `dagster-otel` has a dedicated `traced_dbt()` (not just `traced()`)
-for exactly this case, which additionally opens a child span per dbt node
-(model/seed/test) -- real per-node granularity, not one span for the whole
-dbt run. Auto-applying plain `traced()` via the `multi_asset` patch gives
-every dbt run exactly one span, same as any other multi_asset -- correct, but
-coarser than what a `dagster-otel` user gets by writing `@traced_dbt()`
-explicitly. Closing that gap would need this package to detect "this
-`multi_asset` call is actually a `@dbt_assets` call" (e.g. a `manifest`
-kwarg, or checking the call site) and dispatch to `traced_dbt()` instead --
-not yet designed.
+The remaining gap: `dagster-otel` has a dedicated `traced_dbt()` (not just
+`traced()`) for exactly this case, which additionally opens a child span per
+dbt node (model/seed/test) -- real per-node granularity, not one span for
+the whole dbt run. Auto-applying plain `traced()` via the `multi_asset`
+patch gives every dbt run exactly one span, same as any other multi_asset --
+correct, but coarser than what a `dagster-otel` user gets by writing
+`@traced_dbt()` explicitly. Closing that gap would need this package to
+detect "this `multi_asset` call is actually a `@dbt_assets` call" (e.g. a
+`manifest` kwarg, or checking the call site) and dispatch to `traced_dbt()`
+instead -- not yet designed.
 
 ## Try it (once it exists)
 
