@@ -6,28 +6,37 @@
 [![CodeQL](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/actions/workflows/codeql.yml/badge.svg)](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/github/license/HirofumiTsuda/opentelemetry-instrumentation-dagster)](LICENSE)
 
-Auto-instrumentation for Dagster ops/assets -- zero-code tracing, no
-`@traced()` decorator required. The opt-in companion to
-[`dagster-otel`](https://github.com/HirofumiTsuda/dagster-otel), not a
-replacement for it: `dagster-otel` does the actual span creation, this
-package's only job is applying it automatically to every `@op`/`@asset`/
-`@multi_asset` (and `@dbt_assets`) by patching Dagster's own decorators,
-rather than you writing `@traced()` under each one yourself. See
-[docs/design.md](docs/design.md) for why this is a separate package instead
-of a `dagster-otel` feature, and the full investigation behind how the patch
-works.
+Automatic tracing for [Dagster](https://dagster.io/) pipelines: `pip
+install`, run your pipeline through the `opentelemetry-instrument` launcher,
+and every `@op`/`@asset`/`@multi_asset`/`@dbt_assets` gets a span. No
+`@traced()` decorators, no code changes, no imports in your own pipeline
+files at all.
 
-**Status: early -- `@op`/`@asset`/`@multi_asset` (and `@dbt_assets`, which
-rides along on `@multi_asset` for free) are patched and verified against
-real Dagster execution, including genuine cross-process execution under both
+Built on [`dagster-otel`](https://github.com/HirofumiTsuda/dagster-otel)
+(same author) -- that project does the actual span creation via an explicit
+`@traced()` decorator; this one's only job is applying it automatically
+instead. See [docs/design.md](docs/design.md) for why they're two separate
+packages rather than one.
+
+<details>
+<summary><strong>Status</strong> (early, but verified against real infrastructure -- click to expand)</summary>
+
+<br>
+
+`@op`/`@asset`/`@multi_asset` (and `@dbt_assets`, which rides along on
+`@multi_asset` for free) are patched and verified against real Dagster
+execution, including genuine cross-process execution under both
 `multiprocess` and `k8s_job_executor` (a real `kind` cluster,
 `dev/kubernetes/`) -- both exported to a real Jaeger. `@graph_asset`
-deliberately excluded. `@dbt_assets` not yet verified against a real dbt
-project end to end -- [Issue #6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6).**
+deliberately excluded (see [What's covered](#whats-covered)). `@dbt_assets`
+not yet verified against a real dbt project end to end -- [Issue #6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6).
+
+</details>
 
 ## Table of Contents
 
 - [Installation](#installation)
+- [Quick Start](#quick-start)
 - [Usage](#usage)
 - [What's covered](#whats-covered)
 - [Configuration](#configuration)
@@ -43,12 +52,35 @@ project end to end -- [Issue #6](https://github.com/HirofumiTsuda/opentelemetry-
 pip install opentelemetry-instrumentation-dagster
 ```
 
+## Quick Start
+
+`docker compose up -d` brings up a local Jaeger (no other setup) so you can
+see a real trace land within a couple of minutes.
+[`examples/definitions.py`](examples/definitions.py) is a plain Dagster job
+and asset -- zero `@traced()` calls, zero `dagster_otel`/`opentelemetry`
+imports, nothing at all:
+
+```sh
+git clone https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster
+cd opentelemetry-instrumentation-dagster
+docker compose up -d
+
+pip install opentelemetry-instrumentation-dagster
+OTEL_SERVICE_NAME=quickstart \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+opentelemetry-instrument dagster asset materialize -f examples/definitions.py --select example_asset
+```
+
+Open http://localhost:16686 (Jaeger's UI), select the `quickstart` service,
+and there's the span -- `example_asset`, from a file that never imported
+this package or `dagster-otel` at all.
+
+Teardown: `docker compose down`.
+
 ## Usage
 
-No `@traced()` calls anywhere in your own code -- run your usual Dagster
-command through the `opentelemetry-instrument` launcher (installed as part
-of this package's `opentelemetry-instrumentation` dependency) instead of
-running it directly:
+Same idea against your own pipeline: run your usual Dagster command through
+the `opentelemetry-instrument` launcher instead of running it directly.
 
 ```sh
 OTEL_SERVICE_NAME=my_pipeline \
@@ -122,9 +154,41 @@ handles this correctly (verified against a real run, see
 Kubernetes Pod, and the launcher's usual mechanism can't propagate into a
 brand new container the way it does into a spawned OS subprocess. This
 needs the instrumentation baked into the container image itself instead --
-see [`dev/kubernetes/`](dev/kubernetes/) for a complete, verified-against-a-
-real-cluster example (`Dockerfile`, manifests, and why), and
-[docs/design.md](docs/design.md) for the reasoning.
+no `opentelemetry-instrument` prefix anywhere, because nothing in your own
+config controls the command `k8s_job_executor` constructs internally for
+each step Pod.
+
+### Using this with `k8s_job_executor`
+
+In your own Dockerfile, after installing this package, copy
+`opentelemetry-instrumentation`'s real `sitecustomize.py` into your venv's
+site-packages root:
+
+```dockerfile
+RUN site_packages="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')" && \
+    cp "$site_packages/opentelemetry/instrumentation/auto_instrumentation/sitecustomize.py" \
+       "$site_packages/sitecustomize.py"
+```
+
+Python auto-imports any module literally named `sitecustomize` found
+directly in site-packages at interpreter startup -- so this alone is
+enough, in every container built from that image, including every step Pod
+`k8s_job_executor` launches from it. No `PYTHONPATH`, no `.pth` file, no
+launcher prefix anywhere in your run config or Dockerfile `CMD`.
+
+(If your build process makes a `sysconfig`-based path awkward -- e.g. a
+venv at a path you already know ahead of time -- `find /path/to/venv
+-maxdepth 4 -type d -name site-packages` works just as well. Setting
+`PYTHONPATH` explicitly via `k8s_job_executor`'s `env_vars` run config is
+an alternative to copying the file at all, if that fits your deployment
+better.)
+
+[`dev/kubernetes/`](dev/kubernetes/) is a complete, real-cluster-verified
+example of this exact pattern (`Dockerfile`, `kind` manifests, RBAC) --
+written as this project's own verification harness, not a
+copy-paste-ready deployment template, but the Dockerfile's approach is the
+same one described above. See [docs/design.md](docs/design.md) for the
+full reasoning and the negative-control verification.
 
 ## Compatibility
 
