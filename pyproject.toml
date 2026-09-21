@@ -49,8 +49,11 @@ test = [
 ]
 # Only needed to verify dbt_assets rides along on the multi_asset patch (see
 # tests/test_dbt_assets.py) -- not running real dbt, so dbt-duckdb etc. aren't
-# needed, just the dbt_assets decorator itself. Version matches dagster-otel's own
-# pin against the same dagster version this project also targets.
+# needed, just the dbt_assets decorator itself. If this gets bumped (e.g. by
+# Dependabot), dev/kubernetes/pyproject.toml's dagster-postgres/dagster-k8s pins
+# need to move to the matching dagster patch version too, or the workspace's
+# single shared lock file becomes unresolvable (this and that both requiring a
+# different dagster patch, no version satisfies both).
 dbt = [
     "dagster-dbt==0.29.23",
 ]
