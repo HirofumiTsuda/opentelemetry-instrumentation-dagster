@@ -3,11 +3,12 @@
 Reproduces the k8s timing story documented in the top-level README.md's
 "Timing gets harder with `multiprocess`/`k8s_job_executor`" section: real
 trace context propagation across genuinely separate Kubernetes pods (one per
-Dagster step, via `k8s_job_executor`), using the **static** `PYTHONPATH`
-approach (baked into the image) instead of the dynamic env-inheritance
-`multiprocess` gets for free -- `k8s_job_executor` only forwards an explicit,
-fixed allowlist of env vars into each step pod (checked `dagster_k8s/
-executor.py`), and `PYTHONPATH` isn't among them.
+Dagster step, via `k8s_job_executor`), using a **static** approach (real
+`sitecustomize.py` copied into site-packages' own root at image build time,
+no `PYTHONPATH` involved at all) instead of the dynamic env-inheritance
+`multiprocess` gets for free -- `k8s_job_executor` only forwards an
+explicit, fixed allowlist of env vars into each step pod (checked
+`dagster_k8s/executor.py`), and `PYTHONPATH` isn't among them.
 
 Adapted from `dagster-otel`'s own `dev/kubernetes/` (same structure, same
 Postgres/Jaeger/RBAC pattern) -- the one substantive difference is
@@ -17,10 +18,10 @@ since proving that's unnecessary is the entire point of this package.
 Kept as manifests, not wired into CI -- a full `kind` cluster spin-up is
 heavy for every PR and this is a one-off verification, not a regression test
 this package's logic needs re-run continuously. Rerun by hand if `dagster`/
-`dagster-k8s`/`dagster-postgres`/the base Python image get bumped and this
-needs re-confirming (the `PYTHONPATH` baked into `Dockerfile` is pinned to
-`python:3.11-slim`'s own site-packages layout -- would need updating if that
-`FROM` line ever changes).
+`dagster-k8s`/`dagster-postgres` get bumped and this needs re-confirming
+(`Dockerfile` builds its own `uv`-managed venv at a path it chooses, so
+unlike a hardcoded `PYTHONPATH` this isn't pinned to any particular base
+image's own site-packages layout -- see that file's own comments).
 
 ## Reproduce locally
 
@@ -52,9 +53,13 @@ Teardown: `kind delete cluster --name otel-instr-dagster-e2e`.
 Same roles as `dagster-otel`'s own `dev/kubernetes/` -- see that project's
 `dev/kubernetes/README.md` for the full per-file rationale (Postgres-backed
 storage, why a `K8sRunLauncher` needs configuring even though nothing calls
-`launch_run()` on it, the shared PVC, RBAC). The one thing genuinely
-different here: `Dockerfile`'s `ENV PYTHONPATH=...` line, which is this
-verification's actual point -- see that file's own comment for why it's
-baked statically rather than applied via a per-command
-`opentelemetry-instrument` wrapper (`k8s_job_executor` constructs each step
-pod's own command internally; nothing here controls it directly).
+`launch_run()` on it, the shared PVC, RBAC). `pyproject.toml` here is new --
+a `uv` workspace member of the root project (`[tool.uv.workspace]` there),
+declaring `dagster-postgres`/`dagster-k8s` as real, locked dependencies
+instead of ad-hoc `pip install`s bolted onto the Dockerfile. The other
+genuinely different thing: `Dockerfile`'s final `RUN`, which is this
+verification's actual point -- see that file's own comments for why it
+copies `sitecustomize.py` into site-packages directly rather than applying
+it via a per-command `opentelemetry-instrument` wrapper (`k8s_job_executor`
+constructs each step pod's own command internally; nothing here controls it
+directly).

@@ -107,28 +107,34 @@ process and a brand new Pod's container the way there is for a `spawn`ed
 local subprocess. The `sitecustomize.py` trick's dynamic propagation doesn't
 apply here at all.
 
-The practical fix for k8s: don't rely on propagation -- set `PYTHONPATH`
-*statically*, since the package is already `pip install`ed into the step
-container's image and its `sitecustomize.py` location inside site-packages is
-fixed and known ahead of time. Either bake `ENV PYTHONPATH=...` into the
-Dockerfile, or add `PYTHONPATH` explicitly to `k8s_job_executor`'s `env_vars`
-run config. This is the same shape as how the OpenTelemetry Operator's actual
-Kubernetes auto-instrumentation feature works (a mutating webhook injects
-`PYTHONPATH` directly into the Pod spec) -- static injection into the Pod
-spec, not dynamic process inheritance, is the normal pattern for k8s
-specifically.
+The practical fix for k8s: don't rely on propagation -- make
+`sitecustomize.py` reachable *statically*. Python auto-imports any module
+literally named `sitecustomize` found directly in site-packages at
+interpreter startup, so `dev/kubernetes/Dockerfile` builds the image with a
+venv at a path it chooses (via `uv`, not plain `pip install` -- see that
+file's own comments), finds `opentelemetry-instrumentation`'s real
+`sitecustomize.py` inside it, and copies that one file to site-packages'
+own root. No `PYTHONPATH` or `.pth` file needed -- just the plain import
+mechanism every Python interpreter already has, pointed at a file that's
+already there. Setting `PYTHONPATH` explicitly in `k8s_job_executor`'s
+`env_vars` run config would also work, if this doesn't fit a given
+deployment's build process. This is the same shape as how the OpenTelemetry
+Operator's actual Kubernetes auto-instrumentation feature works (a mutating
+webhook injects `PYTHONPATH` directly into the Pod spec) -- static injection
+into the Pod spec, not dynamic process inheritance, is the normal pattern
+for k8s specifically.
 
 **Verified against a real cluster, not just reasoned through** --
 `dev/kubernetes/` (a real `kind` cluster, Postgres-backed run storage,
 `k8s_job_executor`, a real Jaeger, adapted from `dagster-otel`'s own
 equivalent setup): a two-op job with **zero `@traced()` calls anywhere**,
-`ENV PYTHONPATH=...` baked into the image per above, no
+`sitecustomize.py` copied into the image per above, no
 `opentelemetry-instrument` wrapper on the runner pod's command either (the
-baked env var covers it too, same as every step pod). Result: `kubectl get
+copied file covers it too, same as every step pod). Result: `kubectl get
 pods` showed the runner pod plus two separate `dagster-step-<hash>` pods,
 each its own Kubernetes Job; Jaeger received both spans, correctly parented
-(`downstream_op` a `CHILD_OF` `upstream_op`). See `dev/kubernetes/README.md`
-to reproduce.
+(`downstream_op` a
+`CHILD_OF` `upstream_op`). See `dev/kubernetes/README.md` to reproduce.
 
 ### Why patch the decorators, not the actual invoke point
 
