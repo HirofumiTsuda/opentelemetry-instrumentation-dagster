@@ -10,10 +10,14 @@ requires-python = ">=3.10"
 dependencies = [
     "opentelemetry-instrumentation-dagster",
     # Pinned to the exact dagster patch version this whole workspace resolves to
-    # (dagster-dbt==0.29.22 in the root pyproject.toml pins the same way, same
+    # (dagster-dbt in the root pyproject.toml's dbt group pins the same way, same
     # reasoning: dagster-postgres/dagster-k8s release lockstep with dagster itself).
-    "dagster-postgres==0.29.22",
-    "dagster-k8s==0.29.22",
+    # Has to move in lockstep with that pin, not drift independently -- Dependabot
+    # bumping one without the other makes the workspace's single shared lock file
+    # unresolvable (dagster-dbt requiring a different dagster patch than dagster-k8s/
+    # dagster-postgres, no version of dagster satisfies both).
+    "dagster-postgres==0.29.23",
+    "dagster-k8s==0.29.23",
 ]
 
 [tool.uv.sources]
