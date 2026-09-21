@@ -28,6 +28,7 @@ project end to end -- [Issue #6](https://github.com/HirofumiTsuda/opentelemetry-
 ## Table of Contents
 
 - [Installation](#installation)
+- [Quick Start](#quick-start)
 - [Usage](#usage)
 - [What's covered](#whats-covered)
 - [Configuration](#configuration)
@@ -43,12 +44,35 @@ project end to end -- [Issue #6](https://github.com/HirofumiTsuda/opentelemetry-
 pip install opentelemetry-instrumentation-dagster
 ```
 
+## Quick Start
+
+`docker compose up -d` brings up a local Jaeger (no other setup) so you can
+see a real trace land within a couple of minutes.
+[`examples/definitions.py`](examples/definitions.py) is a plain Dagster job
+and asset -- zero `@traced()` calls, zero `dagster_otel`/`opentelemetry`
+imports, nothing at all:
+
+```sh
+git clone https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster
+cd opentelemetry-instrumentation-dagster
+docker compose up -d
+
+pip install opentelemetry-instrumentation-dagster
+OTEL_SERVICE_NAME=quickstart \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+opentelemetry-instrument dagster asset materialize -f examples/definitions.py --select example_asset
+```
+
+Open http://localhost:16686 (Jaeger's UI), select the `quickstart` service,
+and there's the span -- `example_asset`, from a file that never imported
+this package or `dagster-otel` at all.
+
+Teardown: `docker compose down`.
+
 ## Usage
 
-No `@traced()` calls anywhere in your own code -- run your usual Dagster
-command through the `opentelemetry-instrument` launcher (installed as part
-of this package's `opentelemetry-instrumentation` dependency) instead of
-running it directly:
+Same idea against your own pipeline: run your usual Dagster command through
+the `opentelemetry-instrument` launcher instead of running it directly.
 
 ```sh
 OTEL_SERVICE_NAME=my_pipeline \
