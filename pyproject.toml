@@ -74,6 +74,14 @@ path = "src/opentelemetry/instrumentation/dagster/version.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/opentelemetry"]
 
+[tool.uv.workspace]
+# dev/kubernetes is its own small package (dagster-postgres/dagster-k8s, only
+# needed for the real-cluster k8s_job_executor verification, dev/kubernetes/
+# README.md) -- a workspace member instead of ad-hoc `uv pip install`s bolted onto
+# its Dockerfile, so those dependencies are declared and locked the same way as
+# everything else, sharing this root uv.lock rather than needing one of its own.
+members = ["dev/kubernetes"]
+
 [tool.ruff]
 target-version = "py310"
 line-length = 100
