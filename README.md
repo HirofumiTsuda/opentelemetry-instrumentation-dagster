@@ -6,24 +6,32 @@
 [![CodeQL](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/actions/workflows/codeql.yml/badge.svg)](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/github/license/HirofumiTsuda/opentelemetry-instrumentation-dagster)](LICENSE)
 
-Auto-instrumentation for Dagster ops/assets -- zero-code tracing, no
-`@traced()` decorator required. The opt-in companion to
-[`dagster-otel`](https://github.com/HirofumiTsuda/dagster-otel), not a
-replacement for it: `dagster-otel` does the actual span creation, this
-package's only job is applying it automatically to every `@op`/`@asset`/
-`@multi_asset` (and `@dbt_assets`) by patching Dagster's own decorators,
-rather than you writing `@traced()` under each one yourself. See
-[docs/design.md](docs/design.md) for why this is a separate package instead
-of a `dagster-otel` feature, and the full investigation behind how the patch
-works.
+Automatic tracing for [Dagster](https://dagster.io/) pipelines: `pip
+install`, run your pipeline through the `opentelemetry-instrument` launcher,
+and every `@op`/`@asset`/`@multi_asset`/`@dbt_assets` gets a span. No
+`@traced()` decorators, no code changes, no imports in your own pipeline
+files at all.
 
-**Status: early -- `@op`/`@asset`/`@multi_asset` (and `@dbt_assets`, which
-rides along on `@multi_asset` for free) are patched and verified against
-real Dagster execution, including genuine cross-process execution under both
+Built on [`dagster-otel`](https://github.com/HirofumiTsuda/dagster-otel)
+(same author) -- that project does the actual span creation via an explicit
+`@traced()` decorator; this one's only job is applying it automatically
+instead. See [docs/design.md](docs/design.md) for why they're two separate
+packages rather than one.
+
+<details>
+<summary><strong>Status</strong> (early, but verified against real infrastructure -- click to expand)</summary>
+
+<br>
+
+`@op`/`@asset`/`@multi_asset` (and `@dbt_assets`, which rides along on
+`@multi_asset` for free) are patched and verified against real Dagster
+execution, including genuine cross-process execution under both
 `multiprocess` and `k8s_job_executor` (a real `kind` cluster,
 `dev/kubernetes/`) -- both exported to a real Jaeger. `@graph_asset`
-deliberately excluded. `@dbt_assets` not yet verified against a real dbt
-project end to end -- [Issue #6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6).**
+deliberately excluded (see [What's covered](#whats-covered)). `@dbt_assets`
+not yet verified against a real dbt project end to end -- [Issue #6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6).
+
+</details>
 
 ## Table of Contents
 
