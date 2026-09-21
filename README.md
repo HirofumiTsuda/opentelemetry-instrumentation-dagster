@@ -1,5 +1,11 @@
 # opentelemetry-instrumentation-dagster
 
+[![PyPI](https://img.shields.io/pypi/v/opentelemetry-instrumentation-dagster)](https://pypi.org/project/opentelemetry-instrumentation-dagster/)
+[![Python versions](https://img.shields.io/pypi/pyversions/opentelemetry-instrumentation-dagster)](https://pypi.org/project/opentelemetry-instrumentation-dagster/)
+[![CI](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/actions/workflows/ci.yml/badge.svg)](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/actions/workflows/codeql.yml/badge.svg)](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/github/license/HirofumiTsuda/opentelemetry-instrumentation-dagster)](LICENSE)
+
 Auto-instrumentation for Dagster ops/assets -- zero-code tracing, no
 `@traced()` decorator required. The opt-in companion to
 [`dagster-otel`](https://github.com/HirofumiTsuda/dagster-otel), not a
@@ -16,7 +22,8 @@ rides along on `@multi_asset` for free) are patched and verified against
 real Dagster execution, including genuine cross-process execution under both
 `multiprocess` and `k8s_job_executor` (a real `kind` cluster,
 `dev/kubernetes/`) -- both exported to a real Jaeger. `@graph_asset`
-deliberately excluded. Not yet released to PyPI.**
+deliberately excluded. `@dbt_assets` not yet verified against a real dbt
+project end to end -- [Issue #6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6).**
 
 ## Table of Contents
 
