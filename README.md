@@ -2,9 +2,11 @@
 
 **Status: early -- `@op`/`@asset`/`@multi_asset` (and `@dbt_assets`, which
 rides along on `@multi_asset` for free) are patched and verified against
-real Dagster execution. `@graph_asset` deliberately excluded. Not yet
-released to PyPI; not yet verified under `multiprocess`/`k8s_job_executor`
-timing.**
+real Dagster execution, including genuine cross-process `multiprocess`
+execution through a real `opentelemetry-instrument`-launched run exported to
+a real Jaeger. `@graph_asset` deliberately excluded. Not yet released to
+PyPI; `k8s_job_executor` (a different timing story, see below) not yet
+verified against a real cluster.**
 
 Auto-instrumentation for Dagster ops/assets -- zero-code tracing, no
 `@traced()` decorator required. The opt-in companion to
@@ -74,6 +76,26 @@ does, by default) re-triggers the same `sitecustomize.py` → re-applies every
 registered instrumentor, independently, before that child re-imports
 `Definitions`. No explicit re-wrapping needed per subprocess -- it rides on
 Python's own site-import mechanism plus ordinary environment inheritance.
+
+**Verified against a real run, not just reasoned through.** A job with two
+plain `@op`s (no `@traced()` anywhere in the file), `executor_def=
+multiprocess_executor`, launched via `execute_job()` (not `execute_in_process()`
+-- confirmed the latter always runs everything in one process regardless of
+the configured executor, so it can't exercise this at all) under `opentelemetry-
+instrument python job.py`, with a real Jaeger as the OTLP target:
+
+- Dagster's own log confirmed genuinely separate PIDs for each step (parent
+  `2363506`, `upstream_op` subprocess `2363763`, `downstream_op` subprocess
+  `2363915`).
+- Jaeger received both spans, correctly parented (`downstream_op` a
+  `CHILD_OF` `upstream_op`) -- the cross-process trace-context propagation
+  is entirely `dagster-otel`'s own existing mechanism (via run storage),
+  which needed no help from this package once spans were being created at
+  all.
+- **Negative control**: the identical job run again, same env vars, minus
+  `opentelemetry-instrument` (plain `python job.py`) -- zero traces reached
+  Jaeger. Confirms the launcher is the actual load-bearing mechanism here,
+  not some coincidental side effect.
 
 **This breaks under `k8s_job_executor`.** Checked `dagster_k8s/executor.py`
 (dagster-io/dagster): each step becomes a genuinely separate Kubernetes Job/
