@@ -1,10 +1,12 @@
 """Auto-instrumentation for Dagster ops/assets.
 
-Currently patches dagster.op only (a public, stable decorator factory) so it
-applies dagster_otel.traced() to the incoming compute function before Dagster
-ever builds the resulting OpDefinition. See README.md for the full design,
-including @asset/@multi_asset, the graph_asset exclusion, and why dbt_assets
-rides along on multi_asset for free -- none of that is patched yet.
+Currently patches dagster.op/dagster.asset (public, stable decorator
+factories) so each applies dagster_otel.traced() to the incoming compute
+function before Dagster ever builds the resulting OpDefinition/
+AssetsDefinition. dagster.asset deliberately does NOT cover dagster.
+graph_asset -- see README.md's "graph_asset is out of scope" section for why
+applying traced() there would be actively wrong, not just unnecessary.
+dagster.multi_asset (and dbt_assets riding along on it) isn't patched yet.
 """
 
 from collections.abc import Callable
@@ -30,10 +32,12 @@ __all__ = ["DagsterInstrumentor", "__version__"]
 def _wrap_decorator_factory(
     wrapped: Callable[..., Any], instance: Any, args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> Any:
-    """Wraps a Dagster decorator factory (dagster.op today) that supports both
-    `@op` (bare -- first positional arg is the compute function itself) and
-    `@op(name=...)` (parameterized -- returns a decorator, applied later) forms.
-    See README.md's "Sketch of the decorator wrapper" for the reasoning.
+    """Wraps a Dagster decorator factory (dagster.op/dagster.asset -- both
+    share the same signature shape) that supports both `@op`/`@asset` (bare --
+    first positional arg is the compute function itself) and `@op(name=...)`/
+    `@asset(name=...)` (parameterized -- returns a decorator, applied later)
+    forms. See README.md's "Sketch of the decorator wrapper" for the
+    reasoning.
 
     Passes a `name=...` override through to `traced(span_name=...)` when given
     -- confirmed against a real @op(name="renamed_op") run that traced()'s own
@@ -61,6 +65,8 @@ class DagsterInstrumentor(BaseInstrumentor):
 
     def _instrument(self, **kwargs: Any) -> None:
         wrapt.wrap_function_wrapper("dagster", "op", _wrap_decorator_factory)
+        wrapt.wrap_function_wrapper("dagster", "asset", _wrap_decorator_factory)
 
     def _uninstrument(self, **kwargs: Any) -> None:
         unwrap(dagster, "op")
+        unwrap(dagster, "asset")
