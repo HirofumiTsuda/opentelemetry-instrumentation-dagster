@@ -1,255 +1,147 @@
 # opentelemetry-instrumentation-dagster
 
-**Status: early -- `@op`/`@asset`/`@multi_asset` (and `@dbt_assets`, which
-rides along on `@multi_asset` for free) are patched and verified against
-real Dagster execution, including genuine cross-process execution under both
-`multiprocess` (a real `opentelemetry-instrument`-launched run) and
-`k8s_job_executor` (a real `kind` cluster, `dev/kubernetes/`) -- both
-exported to a real Jaeger. `@graph_asset` deliberately excluded. Not yet
-released to PyPI.**
-
 Auto-instrumentation for Dagster ops/assets -- zero-code tracing, no
 `@traced()` decorator required. The opt-in companion to
 [`dagster-otel`](https://github.com/HirofumiTsuda/dagster-otel), not a
-replacement for it.
+replacement for it: `dagster-otel` does the actual span creation, this
+package's only job is applying it automatically to every `@op`/`@asset`/
+`@multi_asset` (and `@dbt_assets`) by patching Dagster's own decorators,
+rather than you writing `@traced()` under each one yourself. See
+[docs/design.md](docs/design.md) for why this is a separate package instead
+of a `dagster-otel` feature, and the full investigation behind how the patch
+works.
 
-## Why a separate package, not a `dagster-otel` feature
+**Status: early -- `@op`/`@asset`/`@multi_asset` (and `@dbt_assets`, which
+rides along on `@multi_asset` for free) are patched and verified against
+real Dagster execution, including genuine cross-process execution under both
+`multiprocess` and `k8s_job_executor` (a real `kind` cluster,
+`dev/kubernetes/`) -- both exported to a real Jaeger. `@graph_asset`
+deliberately excluded. Not yet released to PyPI.**
 
-`dagster-otel`'s whole pitch is tracing *without* monkeypatching Dagster
-internals and *without* taking ownership of your op/asset definitions away
-from you -- you stack `@traced()` under `@op`/`@asset` yourself, explicitly.
-Auto-instrumentation is the opposite trade: zero code changes, in exchange for
-some framework patching and losing that per-function visibility. Both are
-legitimate, but they're different products for different people, and folding
-the second into the first would quietly undermine what `dagster-otel` already
-promises. Same split the OpenTelemetry Python ecosystem itself uses --
-`opentelemetry-instrumentation-flask`, `-django`, etc. are all separate
-packages from the manual API/SDK.
+## Table of Contents
 
-## Design (not yet built)
+- [Installation](#installation)
+- [Usage](#usage)
+- [What's covered](#whats-covered)
+- [Configuration](#configuration)
+- [`multiprocess`/`k8s_job_executor`](#multiprocessk8s_job_executor)
+- [Compatibility](#compatibility)
+- [Why a separate package](#why-a-separate-package)
+- [Contributing](#contributing)
+- [License](#license)
 
-The naive approach -- reach into an already-built `AssetsDefinition` and swap
-its compute function -- means touching non-public attributes of an object
-that was never meant to be mutated after construction. Instead:
-
-1. Patch `dagster.asset` / `dagster.op` / `dagster.multi_asset` (public,
-   stable decorator factories) so that each, when called, first wraps the
-   incoming compute function with `dagster_otel.traced()` before handing it
-   to the real decorator.
-2. This relies on decorator-application order: if the compute function is
-   already wrapped *before* `@asset`/`@op` builds the `AssetsDefinition`/
-   `OpDefinition`, no post-hoc mutation is ever needed -- same trick
-   `dagster-otel`'s own manual `@traced()` already relies on, just applied by
-   this package instead of by the user.
-3. **Timing matters**: the patch has to be in place before the user's
-   `Definitions` module does `from dagster import asset`, or it's patching a
-   name nothing still refers to. No launcher needs to be built here, though --
-   `opentelemetry-instrument` (from the `opentelemetry-instrumentation`
-   package this depends on) already *is* that launcher, generically, for any
-   registered instrumentor. `_load_instrumentors()` just iterates
-   `entry_points(group="opentelemetry_instrumentor")` and calls
-   `.instrument()` on each -- exactly the group this package's `pyproject.toml`
-   registers `DagsterInstrumentor` under. So the only thing to actually build
-   is `DagsterInstrumentor._instrument()` itself; running
-   `opentelemetry-instrument dagster dev -f definitions.py` is enough to pick
-   it up, timing included (see below for why that also covers `multiprocess`
-   subprocesses, and why it doesn't for `k8s_job_executor`).
-
-### Timing gets harder with `multiprocess`/`k8s_job_executor`
-
-`dagster-otel` already established that each step in a `multiprocess`-executed
-run runs in its own process (see its own README/design.md) -- what that means
-here is Dagster's `MultiprocessExecutor` defaults to
-`start_method="spawn"` (checked in `dagster/_core/executor/multiprocess.py`),
-so each step is a *fresh* interpreter that re-imports the `Definitions`
-module from scratch. A patch applied only in the original `dagster dev`
-process doesn't carry over on its own.
-
-It turns out `opentelemetry-instrument` already solves exactly this, just not
-obviously: it doesn't patch things directly in-process. Instead it inserts
-its own directory (containing a two-line `sitecustomize.py`) at the front of
-the `PYTHONPATH` environment variable, then `execl()`s into the target
-command. Python auto-imports any module named `sitecustomize` found on
-`sys.path` at interpreter startup -- and since `PYTHONPATH` is an environment
-variable, every child process that inherits the environment (which `spawn`
-does, by default) re-triggers the same `sitecustomize.py` → re-applies every
-registered instrumentor, independently, before that child re-imports
-`Definitions`. No explicit re-wrapping needed per subprocess -- it rides on
-Python's own site-import mechanism plus ordinary environment inheritance.
-
-**Verified against a real run, not just reasoned through.** A job with two
-plain `@op`s (no `@traced()` anywhere in the file), `executor_def=
-multiprocess_executor`, launched via `execute_job()` (not `execute_in_process()`
--- confirmed the latter always runs everything in one process regardless of
-the configured executor, so it can't exercise this at all) under `opentelemetry-
-instrument python job.py`, with a real Jaeger as the OTLP target:
-
-- Dagster's own log confirmed genuinely separate PIDs for each step (parent
-  `2363506`, `upstream_op` subprocess `2363763`, `downstream_op` subprocess
-  `2363915`).
-- Jaeger received both spans, correctly parented (`downstream_op` a
-  `CHILD_OF` `upstream_op`) -- the cross-process trace-context propagation
-  is entirely `dagster-otel`'s own existing mechanism (via run storage),
-  which needed no help from this package once spans were being created at
-  all.
-- **Negative control**: the identical job run again, same env vars, minus
-  `opentelemetry-instrument` (plain `python job.py`) -- zero traces reached
-  Jaeger. Confirms the launcher is the actual load-bearing mechanism here,
-  not some coincidental side effect.
-
-**This breaks under `k8s_job_executor`.** Checked `dagster_k8s/executor.py`
-(dagster-io/dagster): each step becomes a genuinely separate Kubernetes Job/
-Pod, and the env vars forwarded into it are an explicit, fixed list --
-`execute_step_args.get_command_env()` (things like `DAGSTER_HOME`) plus
-`DAGSTER_RUN_JOB_NAME`/`DAGSTER_RUN_STEP_KEY`. `PYTHONPATH` isn't among them,
-and there's no OS-level environment inheritance between the orchestrating
-process and a brand new Pod's container the way there is for a `spawn`ed
-local subprocess. The `sitecustomize.py` trick's dynamic propagation doesn't
-apply here at all.
-
-The practical fix for k8s: don't rely on propagation -- make
-`sitecustomize.py` reachable *statically*. Python auto-imports any module
-literally named `sitecustomize` found directly in site-packages at
-interpreter startup, so `dev/kubernetes/Dockerfile` builds the image with a
-venv at a path it chooses (via `uv`, not plain `pip install` -- see that
-file's own comments), finds `opentelemetry-instrumentation`'s real
-`sitecustomize.py` inside it, and copies that one file to site-packages'
-own root. No `PYTHONPATH` or `.pth` file needed -- just the plain import
-mechanism every Python interpreter already has, pointed at a file that's
-already there. Setting `PYTHONPATH` explicitly in `k8s_job_executor`'s
-`env_vars` run config would also work, if this doesn't fit a given
-deployment's build process. This is the same shape as how the OpenTelemetry
-Operator's actual Kubernetes auto-instrumentation feature works (a mutating
-webhook injects `PYTHONPATH` directly into the Pod spec) -- static injection
-into the Pod spec, not dynamic process inheritance, is the normal pattern
-for k8s specifically.
-
-**Verified against a real cluster, not just reasoned through** --
-`dev/kubernetes/` (a real `kind` cluster, Postgres-backed run storage,
-`k8s_job_executor`, a real Jaeger, adapted from `dagster-otel`'s own
-equivalent setup): a two-op job with **zero `@traced()` calls anywhere**,
-`sitecustomize.py` copied into the image per above, no
-`opentelemetry-instrument` wrapper on the runner pod's command either (the
-copied file covers it too, same as every step pod). Result: `kubectl get
-pods` showed the runner pod plus two separate `dagster-step-<hash>` pods,
-each its own Kubernetes Job; Jaeger received both spans, correctly parented
-(`downstream_op` a
-`CHILD_OF` `upstream_op`). See `dev/kubernetes/README.md` to reproduce.
-
-### Why patch the decorators, not the actual invoke point
-
-`opentelemetry-instrumentation-click` (see `opentelemetry-python-contrib`)
-patches `click.core.Command.invoke` -- the method that runs when a command
-actually *executes* -- rather than the `@click.command()` decorator itself,
-sidestepping the bare-vs-parameterized-decorator problem entirely. Checked
-whether Dagster has an equivalent: it does, `dagster._core.execution.plan.
-compute_generator.invoke_compute_fn`, the single place that actually calls
-`fn(context, **kwargs)`. But unlike `click.core.Command` (genuinely public,
-re-exported as `click.Command`), this lives under Dagster's own `_core`
-namespace -- never re-exported from the top-level `dagster` package, and
-every internal Dagster package is underscore-prefixed the same way. Patching
-it would be exactly the private-internals dependency `dagster-otel` was
-designed to avoid. So: patch the public decorators after all, bare/
-parameterized complexity included.
-
-### Sketch of the decorator wrapper
-
-```python
-import wrapt
-from dagster_otel import traced
-
-def _wrap_decorator_factory(wrapped, instance, args, kwargs):
-    # bare form: @asset -- first positional arg is the compute function itself
-    if args and callable(args[0]) and not kwargs:
-        fn, *rest = args
-        return wrapped(traced()(fn), *rest, **kwargs)
-
-    # parameterized form: @asset(name=...) -- wrapped(**kwargs) returns a
-    # decorator; wrap *that* so traced() gets applied when it's later applied
-    # to the actual function
-    real_decorator = wrapped(*args, **kwargs)
-
-    def patched_decorator(fn):
-        return real_decorator(traced()(fn))
-
-    return patched_decorator
-
-# registered via wrapt.wrap_function_wrapper("dagster", "asset", ...) and
-# ("dagster", "op", ...) in _instrument()
-```
-
-Needs verifying against a real Dagster run before trusting it, same as
-everything else in `dagster-otel`'s own history -- types alone don't confirm
-correctness here.
-
-### `graph_asset` is out of scope -- deliberately, not by oversight
-
-`@graph_asset`'s decorated function is a *composition* function, called once
-at definition time to wire up which `@op`s depend on which -- it never
-receives a runtime `ExecutionContext` at all (see the decorator's own
-docstring example: `def slack_files_table(): return store_files(fetch_files_
-from_slack())`, no `context` param). `traced()` assumes a `(context, ...)`
-runtime call; applying it to a `graph_asset`'s compose function would be
-wrong, not just unnecessary -- there's no per-run invocation to wrap, and the
-signature doesn't even match. `asset`/`op`/`multi_asset` are the patch
-targets; `graph_asset` needs to pass through completely unpatched. (Tracing a
-`graph_asset`'s actual execution already works today, for free, by patching
-each of the individual `@op`s it composes -- those really do run with a
-`context` at execution time.)
-
-### `multi_asset` covers `@dbt_assets` for free -- but only at `traced()`'s granularity
-
-`dagster_dbt.dbt_assets` (checked `dagster_dbt/asset_decorator.py`) isn't its
-own independent code path -- it just calls `dagster.multi_asset(specs=...,
-...)` and returns whatever that returns:
-
-```python
-# dagster_dbt/asset_decorator.py
-return multi_asset(
-    name=name,
-    specs=specs,
-    ...
-)
-```
-
-So patching `dagster.multi_asset` (needed anyway -- it's keyword-only,
-`def multi_asset(*, outs=None, ...)`, no bare form, so it only ever exercises
-the parameterized branch of `_wrap_decorator_factory`, no extra dispatch
-logic needed) transitively covers `@dbt_assets` too, with zero dbt-specific
-code in this package. `dagster_dbt` calling the patched `multi_asset` "just
-works" the same way any other caller of a patched function does -- **with
-one real caveat**: `dagster_dbt/asset_decorator.py` does `from dagster
-import ... multi_asset ...` at its own module import time, a one-time name
-binding, not a live link back to `dagster`'s attribute. So this only works
-if `dagster_dbt` gets imported *after* `instrument()` has already run (the
-supported order, since `opentelemetry-instrument`'s `sitecustomize.py` runs
-before any user code imports anything) -- if `dagster_dbt` is somehow
-already imported first, its own `multi_asset` reference is permanently
-frozen to the pre-patch function. Both directions are verified directly, not
-just asserted, in `tests/test_dbt_assets.py` (not against a real dbt
-project/manifest -- `dagster-otel`'s own test suite already covers real dbt
-materialization end to end; this only needs to prove the reference-sharing
-mechanism itself).
-
-The remaining gap: `dagster-otel` has a dedicated `traced_dbt()` (not just
-`traced()`) for exactly this case, which additionally opens a child span per
-dbt node (model/seed/test) -- real per-node granularity, not one span for
-the whole dbt run. Auto-applying plain `traced()` via the `multi_asset`
-patch gives every dbt run exactly one span, same as any other multi_asset --
-correct, but coarser than what a `dagster-otel` user gets by writing
-`@traced_dbt()` explicitly. Closing that gap would need this package to
-detect "this `multi_asset` call is actually a `@dbt_assets` call" (e.g. a
-`manifest` kwarg, or checking the call site) and dispatch to `traced_dbt()`
-instead -- not yet designed.
-
-## Try it (once it exists)
+## Installation
 
 ```sh
 pip install opentelemetry-instrumentation-dagster
 ```
 
-Nothing to configure beyond what `dagster-otel` itself needs (standard
-`OTEL_*` env vars) -- no `@traced()` calls anywhere in your own code.
+## Usage
+
+No `@traced()` calls anywhere in your own code -- run your usual Dagster
+command through the `opentelemetry-instrument` launcher (installed as part
+of this package's `opentelemetry-instrumentation` dependency) instead of
+running it directly:
+
+```sh
+OTEL_SERVICE_NAME=my_pipeline \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+opentelemetry-instrument dagster dev -f definitions.py
+```
+
+That's the entire setup. Every `@op`/`@asset`/`@multi_asset`/`@dbt_assets`
+in `definitions.py` gets a span automatically, with no decorator, no import,
+no change to the file at all:
+
+```python
+from dagster import asset, job, op
+
+@op
+def upstream_op(context) -> int:
+    return 1
+
+@op
+def downstream_op(context, x: int) -> int:
+    return x + 1
+
+@asset
+def my_asset(context) -> None:
+    ...
+
+@job
+def my_job():
+    downstream_op(upstream_op())
+```
+
+The launcher works the same way in front of `dagster job execute`,
+`dagster-webserver`, `dagster-daemon`, or any other Dagster entry point --
+it's a drop-in prefix, not something specific to `dagster dev`.
+
+## What's covered
+
+| Decorator | Status |
+| --- | --- |
+| `@op` | ✅ Patched -- bare and `@op(name=...)` forms |
+| `@asset` | ✅ Patched -- bare and `@asset(name=...)` forms |
+| `@multi_asset` | ✅ Patched |
+| `@dbt_assets` (`dagster_dbt`) | ✅ Covered for free -- it calls `multi_asset` internally, see [docs/design.md](docs/design.md). One span per dbt run (not `dagster-otel`'s finer per-model `@traced_dbt()` granularity) -- [Issue #6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6) tracks verifying this against a real dbt project end to end. |
+| `@graph_asset` | ⬜ Deliberately not patched -- its decorated function never receives a runtime `context` at all, so `@traced()` doesn't apply to it. Tracing the ops it composes (which already works, no changes needed) already covers everything that actually executes. See [docs/design.md](docs/design.md). |
+
+## Configuration
+
+Same standard OTel environment variables `dagster-otel` itself reads --
+nothing this package adds on top:
+
+| Variable | Purpose |
+| --- | --- |
+| `OTEL_SERVICE_NAME` | Names your service in the trace backend. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` (or `..._TRACES_ENDPOINT`) | Where to send spans (e.g. `http://localhost:4317`). Required -- without one of these set, no real exporter is attached at all. |
+| `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` / `..._PROTOCOL` | Transport to export over: `grpc` (default) or `http/protobuf`. |
+| `OTEL_SDK_DISABLED` | Set to `true` to force no export regardless of the endpoint vars above. |
+
+See [`dagster-otel`'s own README](https://github.com/HirofumiTsuda/dagster-otel#configuration)
+for the full list and what each one actually does underneath -- this package
+doesn't wrap or reinterpret any of it, just triggers the same `traced()`
+that reads these itself.
+
+## `multiprocess`/`k8s_job_executor`
+
+Each step in a `multiprocess`-executed run runs in its own, freshly spawned
+Python interpreter -- the `opentelemetry-instrument` launcher above already
+handles this correctly (verified against a real run, see
+[docs/design.md](docs/design.md)), no extra setup needed.
+
+`k8s_job_executor` is different: each step becomes a genuinely separate
+Kubernetes Pod, and the launcher's usual mechanism can't propagate into a
+brand new container the way it does into a spawned OS subprocess. This
+needs the instrumentation baked into the container image itself instead --
+see [`dev/kubernetes/`](dev/kubernetes/) for a complete, verified-against-a-
+real-cluster example (`Dockerfile`, manifests, and why), and
+[docs/design.md](docs/design.md) for the reasoning.
+
+## Compatibility
+
+Depends on [`dagster-otel`](https://github.com/HirofumiTsuda/dagster-otel)
+and `dagster >= 1.5`, same floor as that project. Not independently
+version-matrix-tested beyond what `dagster-otel` itself covers -- if you hit
+an incompatibility, [open an issue](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/new).
+
+## Why a separate package
+
+`dagster-otel`'s whole pitch is tracing *without* monkeypatching Dagster
+internals and *without* taking ownership of your op/asset definitions away
+from you. Auto-instrumentation is the opposite trade: zero code changes, in
+exchange for some framework patching and losing that per-function
+visibility. Both are legitimate, but they're different products for
+different people -- same split the OpenTelemetry Python ecosystem itself
+uses (`opentelemetry-instrumentation-flask`, `-django`, etc. are all
+separate packages from the manual API/SDK). See
+[docs/design.md](docs/design.md) for the full reasoning.
+
+## Contributing
+
+Issues and PRs welcome -- [open an issue](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/new)
+for bugs, missing coverage, or a backend that doesn't work as expected.
 
 ## License
 
