@@ -146,9 +146,41 @@ handles this correctly (verified against a real run, see
 Kubernetes Pod, and the launcher's usual mechanism can't propagate into a
 brand new container the way it does into a spawned OS subprocess. This
 needs the instrumentation baked into the container image itself instead --
-see [`dev/kubernetes/`](dev/kubernetes/) for a complete, verified-against-a-
-real-cluster example (`Dockerfile`, manifests, and why), and
-[docs/design.md](docs/design.md) for the reasoning.
+no `opentelemetry-instrument` prefix anywhere, because nothing in your own
+config controls the command `k8s_job_executor` constructs internally for
+each step Pod.
+
+### Using this with `k8s_job_executor`
+
+In your own Dockerfile, after installing this package, copy
+`opentelemetry-instrumentation`'s real `sitecustomize.py` into your venv's
+site-packages root:
+
+```dockerfile
+RUN site_packages="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')" && \
+    cp "$site_packages/opentelemetry/instrumentation/auto_instrumentation/sitecustomize.py" \
+       "$site_packages/sitecustomize.py"
+```
+
+Python auto-imports any module literally named `sitecustomize` found
+directly in site-packages at interpreter startup -- so this alone is
+enough, in every container built from that image, including every step Pod
+`k8s_job_executor` launches from it. No `PYTHONPATH`, no `.pth` file, no
+launcher prefix anywhere in your run config or Dockerfile `CMD`.
+
+(If your build process makes a `sysconfig`-based path awkward -- e.g. a
+venv at a path you already know ahead of time -- `find /path/to/venv
+-maxdepth 4 -type d -name site-packages` works just as well. Setting
+`PYTHONPATH` explicitly via `k8s_job_executor`'s `env_vars` run config is
+an alternative to copying the file at all, if that fits your deployment
+better.)
+
+[`dev/kubernetes/`](dev/kubernetes/) is a complete, real-cluster-verified
+example of this exact pattern (`Dockerfile`, `kind` manifests, RBAC) --
+written as this project's own verification harness, not a
+copy-paste-ready deployment template, but the Dockerfile's approach is the
+same one described above. See [docs/design.md](docs/design.md) for the
+full reasoning and the negative-control verification.
 
 ## Compatibility
 
