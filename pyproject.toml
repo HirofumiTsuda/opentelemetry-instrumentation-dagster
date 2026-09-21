@@ -75,3 +75,15 @@ extend-exclude = ["*.md"]
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 ignore = []
+
+[tool.mypy]
+# Implicit namespace packages (opentelemetry/instrumentation/dagster has no
+# __init__.py anywhere above it, matching the whole opentelemetry-instrumentation-*
+# ecosystem's own layout) confuse mypy's default module-root inference when checking
+# src/ and tests/ together -- it was resolving src/opentelemetry/instrumentation/
+# dagster/__init__.py as both "dagster" and "opentelemetry.instrumentation.dagster"
+# simultaneously ("Source file found twice under different module names"). These two
+# settings are mypy's own documented fix for exactly this src-layout + namespace-
+# package combination.
+explicit_package_bases = true
+mypy_path = "src"

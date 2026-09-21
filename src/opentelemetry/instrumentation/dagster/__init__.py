@@ -1,28 +1,66 @@
 """Auto-instrumentation for Dagster ops/assets.
 
-Not implemented yet -- this is a scaffold. See README.md for the design this is
-meant to follow: patch dagster.asset/op/multi_asset (public decorator factories,
-not private internals) so each already applies dagster_otel.traced() to the
-compute function it wraps, before Dagster ever builds the resulting
-AssetsDefinition/OpDefinition. Must run before the user's Definitions module
-imports those names -- same timing constraint every other
-opentelemetry-instrumentation-* package has, hence patching in _instrument()
-rather than at import time here.
+Currently patches dagster.op only (a public, stable decorator factory) so it
+applies dagster_otel.traced() to the incoming compute function before Dagster
+ever builds the resulting OpDefinition. See README.md for the full design,
+including @asset/@multi_asset, the graph_asset exclusion, and why dbt_assets
+rides along on multi_asset for free -- none of that is patched yet.
 """
 
-from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
+from collections.abc import Callable
+from typing import Any
+
+import wrapt
+from dagster_otel import traced
+
+# opentelemetry-instrumentation's own instrumentor.py has a file-level `# type:
+# ignore`, so mypy sees no type info for it at all -- not a gap in this file.
+from opentelemetry.instrumentation.instrumentor import (  # type: ignore[attr-defined]
+    BaseInstrumentor,
+)
+from opentelemetry.instrumentation.utils import unwrap
+
+import dagster
 
 from .version import __version__
 
 __all__ = ["DagsterInstrumentor", "__version__"]
 
 
+def _wrap_decorator_factory(
+    wrapped: Callable[..., Any], instance: Any, args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> Any:
+    """Wraps a Dagster decorator factory (dagster.op today) that supports both
+    `@op` (bare -- first positional arg is the compute function itself) and
+    `@op(name=...)` (parameterized -- returns a decorator, applied later) forms.
+    See README.md's "Sketch of the decorator wrapper" for the reasoning.
+
+    Passes a `name=...` override through to `traced(span_name=...)` when given
+    -- confirmed against a real @op(name="renamed_op") run that traced()'s own
+    default (falling back to the compute function's __name__) otherwise
+    produces a span named after the Python function, not the name Dagster
+    actually gives the op/step. Manual @traced() usage can't fix this itself
+    (decorator order means it never sees @op's own kwargs); this package can,
+    since it's the thing patching dagster.op(name=...) directly."""
+    if args and callable(args[0]) and not kwargs:
+        fn, *rest = args
+        return wrapped(traced()(fn), *rest, **kwargs)
+
+    real_decorator = wrapped(*args, **kwargs)
+    span_name = kwargs.get("name")
+
+    def patched_decorator(fn: Callable[..., Any]) -> Any:
+        return real_decorator(traced(span_name)(fn))
+
+    return patched_decorator
+
+
 class DagsterInstrumentor(BaseInstrumentor):
     def instrumentation_dependencies(self):
         return ("dagster >= 1.5",)
 
-    def _instrument(self, **kwargs):
-        raise NotImplementedError
+    def _instrument(self, **kwargs: Any) -> None:
+        wrapt.wrap_function_wrapper("dagster", "op", _wrap_decorator_factory)
 
-    def _uninstrument(self, **kwargs):
-        raise NotImplementedError
+    def _uninstrument(self, **kwargs: Any) -> None:
+        unwrap(dagster, "op")
