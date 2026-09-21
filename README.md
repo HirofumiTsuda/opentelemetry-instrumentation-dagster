@@ -2,11 +2,11 @@
 
 **Status: early -- `@op`/`@asset`/`@multi_asset` (and `@dbt_assets`, which
 rides along on `@multi_asset` for free) are patched and verified against
-real Dagster execution, including genuine cross-process `multiprocess`
-execution through a real `opentelemetry-instrument`-launched run exported to
-a real Jaeger. `@graph_asset` deliberately excluded. Not yet released to
-PyPI; `k8s_job_executor` (a different timing story, see below) not yet
-verified against a real cluster.**
+real Dagster execution, including genuine cross-process execution under both
+`multiprocess` (a real `opentelemetry-instrument`-launched run) and
+`k8s_job_executor` (a real `kind` cluster, `dev/kubernetes/`) -- both
+exported to a real Jaeger. `@graph_asset` deliberately excluded. Not yet
+released to PyPI.**
 
 Auto-instrumentation for Dagster ops/assets -- zero-code tracing, no
 `@traced()` decorator required. The opt-in companion to
@@ -117,6 +117,18 @@ Kubernetes auto-instrumentation feature works (a mutating webhook injects
 `PYTHONPATH` directly into the Pod spec) -- static injection into the Pod
 spec, not dynamic process inheritance, is the normal pattern for k8s
 specifically.
+
+**Verified against a real cluster, not just reasoned through** --
+`dev/kubernetes/` (a real `kind` cluster, Postgres-backed run storage,
+`k8s_job_executor`, a real Jaeger, adapted from `dagster-otel`'s own
+equivalent setup): a two-op job with **zero `@traced()` calls anywhere**,
+`ENV PYTHONPATH=...` baked into the image per above, no
+`opentelemetry-instrument` wrapper on the runner pod's command either (the
+baked env var covers it too, same as every step pod). Result: `kubectl get
+pods` showed the runner pod plus two separate `dagster-step-<hash>` pods,
+each its own Kubernetes Job; Jaeger received both spans, correctly parented
+(`downstream_op` a `CHILD_OF` `upstream_op`). See `dev/kubernetes/README.md`
+to reproduce.
 
 ### Why patch the decorators, not the actual invoke point
 
