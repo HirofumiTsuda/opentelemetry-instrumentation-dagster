@@ -37,6 +37,10 @@ dependencies = [
     "dagster-otel",
     "dagster >= 1.5",
     "opentelemetry-instrumentation",
+    # Comes in transitively via opentelemetry-instrumentation, but the decorator-
+    # wrapping code imports it directly (wrapt.wrap_function_wrapper), so it's
+    # declared explicitly rather than relying on someone else's dependency graph.
+    "wrapt",
 ]
 
 [dependency-groups]
