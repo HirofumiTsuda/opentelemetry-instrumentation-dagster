@@ -1,12 +1,15 @@
 """Auto-instrumentation for Dagster ops/assets.
 
-Currently patches dagster.op/dagster.asset (public, stable decorator
-factories) so each applies dagster_otel.traced() to the incoming compute
-function before Dagster ever builds the resulting OpDefinition/
-AssetsDefinition. dagster.asset deliberately does NOT cover dagster.
-graph_asset -- see README.md's "graph_asset is out of scope" section for why
-applying traced() there would be actively wrong, not just unnecessary.
-dagster.multi_asset (and dbt_assets riding along on it) isn't patched yet.
+Patches dagster.op/dagster.asset/dagster.multi_asset (public, stable
+decorator factories) so each applies dagster_otel.traced() to the incoming
+compute function before Dagster ever builds the resulting OpDefinition/
+AssetsDefinition. dagster_dbt.dbt_assets is covered for free by the
+multi_asset patch -- it just calls dagster.multi_asset(specs=..., ...)
+internally and returns the result, no independent code path (see README.md's
+"multi_asset covers @dbt_assets for free" section). dagster.graph_asset is
+deliberately NOT covered -- see README.md's "graph_asset is out of scope"
+section for why applying traced() there would be actively wrong, not just
+unnecessary.
 """
 
 from collections.abc import Callable
@@ -32,11 +35,14 @@ __all__ = ["DagsterInstrumentor", "__version__"]
 def _wrap_decorator_factory(
     wrapped: Callable[..., Any], instance: Any, args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> Any:
-    """Wraps a Dagster decorator factory (dagster.op/dagster.asset -- both
-    share the same signature shape) that supports both `@op`/`@asset` (bare --
-    first positional arg is the compute function itself) and `@op(name=...)`/
-    `@asset(name=...)` (parameterized -- returns a decorator, applied later)
-    forms. See README.md's "Sketch of the decorator wrapper" for the
+    """Wraps a Dagster decorator factory (dagster.op/dagster.asset/dagster.
+    multi_asset) that supports `@op`/`@asset` (bare -- first positional arg is
+    the compute function itself) and `@op(name=...)`/`@asset(name=...)`/
+    `@multi_asset(outs=...)` (parameterized -- returns a decorator, applied
+    later) forms. `multi_asset` is keyword-only (no bare form at all, per its
+    own signature: `def multi_asset(*, outs=None, ...)`), so it only ever
+    exercises the parameterized branch below -- no extra dispatch logic
+    needed. See README.md's "Sketch of the decorator wrapper" for the
     reasoning.
 
     Passes a `name=...` override through to `traced(span_name=...)` when given
@@ -66,7 +72,9 @@ class DagsterInstrumentor(BaseInstrumentor):
     def _instrument(self, **kwargs: Any) -> None:
         wrapt.wrap_function_wrapper("dagster", "op", _wrap_decorator_factory)
         wrapt.wrap_function_wrapper("dagster", "asset", _wrap_decorator_factory)
+        wrapt.wrap_function_wrapper("dagster", "multi_asset", _wrap_decorator_factory)
 
     def _uninstrument(self, **kwargs: Any) -> None:
         unwrap(dagster, "op")
         unwrap(dagster, "asset")
+        unwrap(dagster, "multi_asset")
