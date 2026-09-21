@@ -52,7 +52,7 @@ test = [
 # needed, just the dbt_assets decorator itself. Version matches dagster-otel's own
 # pin against the same dagster version this project also targets.
 dbt = [
-    "dagster-dbt==0.29.22",
+    "dagster-dbt==0.29.23",
 ]
 lint = [
     "mypy==2.3.1",
