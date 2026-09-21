@@ -81,3 +81,28 @@ def test_multi_asset_patched_after_dagster_dbt_import_is_not_shared() -> None:
         )
     finally:
         instrumentor.uninstrument()
+
+
+def test_no_warning_when_dagster_dbt_not_yet_imported(
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """The supported order shouldn't warn about anything."""
+    instrumentor = DagsterInstrumentor()
+    instrumentor.instrument()
+    try:
+        assert not [w for w in recwarn.list if "dagster_dbt" in str(w.message)]
+    finally:
+        instrumentor.uninstrument()
+
+
+def test_warns_when_dagster_dbt_already_imported() -> None:
+    """The gotcha the two tests above exercise the mechanics of -- surfaced as
+    an actual warning instead of a silent, hard-to-diagnose tracing gap."""
+    import dagster_dbt  # noqa: F401  -- import itself is the point, not its use
+
+    instrumentor = DagsterInstrumentor()
+    try:
+        with pytest.warns(UserWarning, match="dagster_dbt"):
+            instrumentor.instrument()
+    finally:
+        instrumentor.uninstrument()

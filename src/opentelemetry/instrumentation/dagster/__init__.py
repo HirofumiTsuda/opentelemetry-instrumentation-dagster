@@ -12,6 +12,8 @@ section for why applying traced() there would be actively wrong, not just
 unnecessary.
 """
 
+import sys
+import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -70,6 +72,27 @@ class DagsterInstrumentor(BaseInstrumentor):
         return ("dagster >= 1.5",)
 
     def _instrument(self, **kwargs: Any) -> None:
+        # dagster_dbt.asset_decorator does `from dagster import ... multi_asset ...`
+        # at its own module import time -- a one-time name binding, not a live link
+        # back to dagster's attribute (see README.md's "multi_asset covers
+        # @dbt_assets for free" section, and tests/test_dbt_assets.py, which
+        # reproduces both directions directly). If dagster_dbt is already imported
+        # by the time this runs, its own multi_asset reference is permanently
+        # frozen to the pre-patch function -- @dbt_assets silently stops being
+        # traced, with nothing else to indicate anything is wrong. Warn instead of
+        # staying silent about it.
+        if "dagster_dbt" in sys.modules:
+            warnings.warn(
+                "dagster_dbt was already imported before "
+                "opentelemetry-instrumentation-dagster's instrument() ran -- "
+                "@dbt_assets will not be traced, since dagster_dbt's own reference "
+                "to dagster.multi_asset is already bound to the pre-patch function. "
+                "Run your program under `opentelemetry-instrument` (which patches "
+                "before any of your own code, including dagster_dbt, gets "
+                "imported), or call instrument() before importing dagster_dbt.",
+                stacklevel=2,
+            )
+
         wrapt.wrap_function_wrapper("dagster", "op", _wrap_decorator_factory)
         wrapt.wrap_function_wrapper("dagster", "asset", _wrap_decorator_factory)
         wrapt.wrap_function_wrapper("dagster", "multi_asset", _wrap_decorator_factory)
