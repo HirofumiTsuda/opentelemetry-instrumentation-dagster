@@ -18,24 +18,6 @@ Built on [`dagster-otel`](https://github.com/HirofumiTsuda/dagster-otel)
 instead. See [docs/design.md](docs/design.md) for why they're two separate
 packages rather than one.
 
-<details>
-<summary><strong>Status</strong> (early, but verified against real infrastructure -- click to expand)</summary>
-
-<br>
-
-`@op`/`@asset`/`@multi_asset` (and `@dbt_assets`, which rides along on
-`@multi_asset` for free) are patched and verified against real Dagster
-execution, including genuine cross-process execution under both
-`multiprocess` and `k8s_job_executor` (a real `kind` cluster,
-`dev/kubernetes/`) -- both exported to a real Jaeger. `@asset_check` is also
-patched (same mechanism, verified against a real `materialize()` run), though
-not independently re-verified under `multiprocess`/`k8s_job_executor` yet.
-`@graph_asset` deliberately excluded (see [What's covered](#whats-covered)).
-`@dbt_assets` not yet verified against a real dbt project end to end --
-[Issue #6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6).
-
-</details>
-
 ## Table of Contents
 
 - [Installation](#installation)
@@ -47,6 +29,7 @@ not independently re-verified under `multiprocess`/`k8s_job_executor` yet.
 - [Compatibility](#compatibility)
 - [Why a separate package](#why-a-separate-package)
 - [Contributing](#contributing)
+- [Roadmap](#roadmap)
 - [License](#license)
 
 ## Installation
@@ -217,6 +200,22 @@ separate packages from the manual API/SDK). See
 
 Issues and PRs welcome -- [open an issue](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/new)
 for bugs, missing coverage, or a backend that doesn't work as expected.
+
+## Roadmap
+
+- [x] `@op`/`@asset`/`@multi_asset` patched, verified against real Dagster
+      execution across `multiprocess` and `k8s_job_executor`, both exported
+      to a real Jaeger
+- [x] `@asset_check` patched (see [What's covered](#whats-covered))
+- [x] `@dbt_assets` covered for free -- it calls `multi_asset` internally
+- [x] `opentelemetry_instrumentor` entry point resolution verified
+- [x] Warn when `dagster_dbt` is already imported before `instrument()` runs
+- [ ] Combined demo: `dagster-prometheus-exporter` metrics + zero-code traces, through Grafana Tempo ([#24](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/24))
+- [ ] Dispatch `@dbt_assets` calls to `traced_dbt()` for per-dbt-node span granularity ([#14](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/14))
+- [ ] Verify `@dbt_assets` end-to-end against a real dbt project ([#6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6))
+- [ ] Test that exceptions propagate correctly through the patched decorator ([#11](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/11))
+- [ ] Test the parameterized-decorator-without-name dispatch branch ([#10](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/10))
+- [ ] Test `uninstrument()` for `@asset`/`@multi_asset`, not just `@op` ([#9](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/9))
 
 ## License
 
