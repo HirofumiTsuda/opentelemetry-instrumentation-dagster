@@ -1,16 +1,17 @@
-"""Auto-instrumentation for Dagster ops/assets.
+"""Auto-instrumentation for Dagster ops/assets/asset checks.
 
-Patches dagster.op/dagster.asset/dagster.multi_asset (public, stable
-decorator factories) so each applies dagster_otel.traced() to the incoming
-compute function before Dagster ever builds the resulting OpDefinition/
-AssetsDefinition -- the actual wrapt dispatch logic lives in _wrapping.py,
-this module just wires it up to those three names and the BaseInstrumentor
-lifecycle. dagster_dbt.dbt_assets is covered for free by the multi_asset
-patch -- it just calls dagster.multi_asset(specs=..., ...) internally and
-returns the result, no independent code path (see README.md's "multi_asset
-covers @dbt_assets for free" section). dagster.graph_asset is deliberately
-NOT covered -- see README.md's "graph_asset is out of scope" section for why
-applying traced() there would be actively wrong, not just unnecessary.
+Patches dagster.op/dagster.asset/dagster.multi_asset/dagster.asset_check
+(public, stable decorator factories) so each applies dagster_otel.traced() to
+the incoming compute function before Dagster ever builds the resulting
+OpDefinition/AssetsDefinition/AssetChecksDefinition -- the actual wrapt
+dispatch logic lives in _wrapping.py, this module just wires it up to those
+four names and the BaseInstrumentor lifecycle. dagster_dbt.dbt_assets is
+covered for free by the multi_asset patch -- it just calls
+dagster.multi_asset(specs=..., ...) internally and returns the result, no
+independent code path (see README.md's "multi_asset covers @dbt_assets for
+free" section). dagster.graph_asset is deliberately NOT covered -- see
+README.md's "graph_asset is out of scope" section for why applying traced()
+there would be actively wrong, not just unnecessary.
 """
 
 import sys
@@ -63,8 +64,10 @@ class DagsterInstrumentor(BaseInstrumentor):
         wrapt.wrap_function_wrapper("dagster", "op", _wrap_decorator_factory)
         wrapt.wrap_function_wrapper("dagster", "asset", _wrap_decorator_factory)
         wrapt.wrap_function_wrapper("dagster", "multi_asset", _wrap_decorator_factory)
+        wrapt.wrap_function_wrapper("dagster", "asset_check", _wrap_decorator_factory)
 
     def _uninstrument(self, **kwargs: Any) -> None:
         unwrap(dagster, "op")
         unwrap(dagster, "asset")
         unwrap(dagster, "multi_asset")
+        unwrap(dagster, "asset_check")

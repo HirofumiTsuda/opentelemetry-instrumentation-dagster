@@ -8,9 +8,9 @@
 
 Automatic tracing for [Dagster](https://dagster.io/) pipelines: `pip
 install`, run your pipeline through the `opentelemetry-instrument` launcher,
-and every `@op`/`@asset`/`@multi_asset`/`@dbt_assets` gets a span. No
-`@traced()` decorators, no code changes, no imports in your own pipeline
-files at all.
+and every `@op`/`@asset`/`@multi_asset`/`@asset_check`/`@dbt_assets` gets a
+span. No `@traced()` decorators, no code changes, no imports in your own
+pipeline files at all.
 
 Built on [`dagster-otel`](https://github.com/HirofumiTsuda/dagster-otel)
 (same author) -- that project does the actual span creation via an explicit
@@ -27,9 +27,12 @@ packages rather than one.
 `@multi_asset` for free) are patched and verified against real Dagster
 execution, including genuine cross-process execution under both
 `multiprocess` and `k8s_job_executor` (a real `kind` cluster,
-`dev/kubernetes/`) -- both exported to a real Jaeger. `@graph_asset`
-deliberately excluded (see [What's covered](#whats-covered)). `@dbt_assets`
-not yet verified against a real dbt project end to end -- [Issue #6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6).
+`dev/kubernetes/`) -- both exported to a real Jaeger. `@asset_check` is also
+patched (same mechanism, verified against a real `materialize()` run), though
+not independently re-verified under `multiprocess`/`k8s_job_executor` yet.
+`@graph_asset` deliberately excluded (see [What's covered](#whats-covered)).
+`@dbt_assets` not yet verified against a real dbt project end to end --
+[Issue #6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6).
 
 </details>
 
@@ -88,9 +91,9 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
 opentelemetry-instrument dagster dev -f definitions.py
 ```
 
-That's the entire setup. Every `@op`/`@asset`/`@multi_asset`/`@dbt_assets`
-in `definitions.py` gets a span automatically, with no decorator, no import,
-no change to the file at all:
+That's the entire setup. Every `@op`/`@asset`/`@multi_asset`/`@asset_check`/
+`@dbt_assets` in `definitions.py` gets a span automatically, with no
+decorator, no import, no change to the file at all:
 
 ```python
 from dagster import asset, job, op
@@ -123,6 +126,7 @@ it's a drop-in prefix, not something specific to `dagster dev`.
 | `@op` | ✅ Patched -- bare and `@op(name=...)` forms |
 | `@asset` | ✅ Patched -- bare and `@asset(name=...)` forms |
 | `@multi_asset` | ✅ Patched |
+| `@asset_check` | ✅ Patched -- `@asset_check(asset=...)` and `@asset_check(asset=..., name=...)` forms. Requires `dagster-otel >= 0.4.0` (its `AssetCheckExecutionContext` support). |
 | `@dbt_assets` (`dagster_dbt`) | ✅ Covered for free -- it calls `multi_asset` internally, see [docs/design.md](docs/design.md). One span per dbt run (not `dagster-otel`'s finer per-model `@traced_dbt()` granularity) -- [Issue #6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6) tracks verifying this against a real dbt project end to end. |
 | `@graph_asset` | ⬜ Deliberately not patched -- its decorated function never receives a runtime `context` at all, so `@traced()` doesn't apply to it. Tracing the ops it composes (which already works, no changes needed) already covers everything that actually executes. See [docs/design.md](docs/design.md). |
 

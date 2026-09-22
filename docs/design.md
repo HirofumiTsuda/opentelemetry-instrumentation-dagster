@@ -24,10 +24,10 @@ The naive approach -- reach into an already-built `AssetsDefinition` and swap
 its compute function -- means touching non-public attributes of an object
 that was never meant to be mutated after construction. Instead:
 
-1. Patch `dagster.asset` / `dagster.op` / `dagster.multi_asset` (public,
-   stable decorator factories) so that each, when called, first wraps the
-   incoming compute function with `dagster_otel.traced()` before handing it
-   to the real decorator.
+1. Patch `dagster.asset` / `dagster.op` / `dagster.multi_asset` /
+   `dagster.asset_check` (public, stable decorator factories) so that each,
+   when called, first wraps the incoming compute function with
+   `dagster_otel.traced()` before handing it to the real decorator.
 2. This relies on decorator-application order: if the compute function is
    already wrapped *before* `@asset`/`@op` builds the `AssetsDefinition`/
    `OpDefinition`, no post-hoc mutation is ever needed -- same trick
@@ -236,3 +236,51 @@ correct, but coarser than what a `dagster-otel` user gets by writing
 detect "this `multi_asset` call is actually a `@dbt_assets` call" (e.g. a
 `manifest` kwarg, or checking the call site) and dispatch to `traced_dbt()`
 instead -- not yet designed.
+
+## `asset_check` patch (Issue #16)
+
+Before this, asset checks ran with zero tracing even in a fully
+auto-instrumented pipeline -- a real, silent coverage gap for anyone using
+Dagster's asset-checks feature, since only `op`/`asset`/`multi_asset` were
+patched.
+
+Checked directly against the installed `dagster` package:
+`dagster.asset_check` (`dagster/_core/definitions/decorators/
+asset_check_decorator.py`) is `*, asset: ..., name: str | None = None, ...`
+-- keyword-only, same shape as `multi_asset`, so it only ever exercises
+`_wrap_decorator_factory`'s existing parameterized branch. No new dispatch
+logic needed -- just a fourth `wrapt.wrap_function_wrapper("dagster",
+"asset_check", _wrap_decorator_factory)` (and matching `unwrap`) in
+`_instrument()`/`_uninstrument()`.
+
+Its decorated function receives a runtime `AssetCheckExecutionContext` --
+a genuinely different shape from `OpExecutionContext`/
+`AssetExecutionContext` (no `.job_name`, no `.selected_asset_keys`, see
+`dagster-otel`'s own Issue #72 writeup). `traced()` only gained support for
+that context type in `dagster-otel` 0.4.0, so this package's dependency was
+bumped to `dagster-otel >= 0.4.0` alongside this patch -- applying `traced()`
+to a real `@asset_check` function via any older `dagster-otel` crashes with
+`AttributeError: 'AssetCheckExecutionContext' object has no attribute
+'job_name'`.
+
+Verified two ways:
+
+- `tests/test_asset_check.py`: a real `dagster.materialize()` run (via
+  `DagsterInstrumentor().instrument()` directly) with an
+  `@asset_check(asset=...)` alongside its checked `@asset`, both bare-name
+  and `name=...` forms, confirming a span lands for the check itself (not
+  just the asset it checks).
+- The actual zero-code path, end to end: a script with no `instrument()`
+  call and no `@traced()` anywhere, run under `opentelemetry-instrument
+  python ...`. `dagster.asset_check` was already the wrapt-patched function
+  by the time the script's own `import dagster` ran (confirmed by
+  inspecting `dagster.asset_check.__wrapped__`), and materializing an
+  `@asset` plus an `@asset_check(asset=...)` against it produced spans for
+  both, with no code in the script referencing this package or
+  `dagster_otel` at all -- the same entry-point/`sitecustomize.py`
+  mechanism the other three decorators already rely on (see "How the patch
+  works" above), just confirmed here too rather than assumed to extend.
+
+Not yet independently re-verified under `multiprocess`/`k8s_job_executor`
+specifically -- same generic patch mechanism already verified there for the
+other three decorators, but no dedicated real-cluster run for `asset_check`.

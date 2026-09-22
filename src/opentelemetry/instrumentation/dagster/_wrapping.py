@@ -17,12 +17,14 @@ def _wrap_decorator_factory(
     wrapped: Callable[..., Any], instance: Any, args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> Any:
     """Wraps a Dagster decorator factory (dagster.op/dagster.asset/dagster.
-    multi_asset) that supports `@op`/`@asset` (bare -- first positional arg is
-    the compute function itself) and `@op(name=...)`/`@asset(name=...)`/
-    `@multi_asset(outs=...)` (parameterized -- returns a decorator, applied
-    later) forms. `multi_asset` is keyword-only (no bare form at all, per its
-    own signature: `def multi_asset(*, outs=None, ...)`), so it only ever
-    exercises the parameterized branch below -- no extra dispatch logic
+    multi_asset/dagster.asset_check) that supports `@op`/`@asset` (bare --
+    first positional arg is the compute function itself) and
+    `@op(name=...)`/`@asset(name=...)`/`@multi_asset(outs=...)`/
+    `@asset_check(asset=...)` (parameterized -- returns a decorator, applied
+    later) forms. `multi_asset` and `asset_check` are both keyword-only (no
+    bare form at all, per their own signatures: `def multi_asset(*,
+    outs=None, ...)`, `def asset_check(*, asset, ...)`), so they only ever
+    exercise the parameterized branch below -- no extra dispatch logic
     needed. See docs/design.md's "Sketch of the decorator wrapper" for the
     reasoning.
 

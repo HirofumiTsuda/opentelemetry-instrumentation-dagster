@@ -30,11 +30,16 @@ classifiers = [
 ]
 dependencies = [
     # dagster-otel does the actual span creation (@traced()) -- this package's only
-    # job is to apply that decorator to the user's ops/assets automatically, by
-    # patching dagster.asset/op/etc. before the user's Definitions module imports
-    # them. See README.md for why this is a separate package, not folded into
-    # dagster-otel itself.
-    "dagster-otel",
+    # job is to apply that decorator to the user's ops/assets/asset checks
+    # automatically, by patching dagster.asset/op/etc. before the user's
+    # Definitions module imports them. See README.md for why this is a separate
+    # package, not folded into dagster-otel itself.
+    #
+    # >= 0.4.0 specifically for the asset_check patch (Issue #16): traced()
+    # crashes on a real AssetCheckExecutionContext (AttributeError: no
+    # .job_name) on any older dagster-otel -- that support only landed in
+    # dagster-otel's own 0.4.0 (dagster-otel#72).
+    "dagster-otel >= 0.4.0",
     "dagster >= 1.5",
     "opentelemetry-instrumentation",
     # Comes in transitively via opentelemetry-instrumentation, but the decorator-
