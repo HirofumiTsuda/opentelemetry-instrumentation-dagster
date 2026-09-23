@@ -63,6 +63,13 @@ this package or `dagster-otel` at all.
 
 Teardown: `docker compose down`.
 
+For `@dbt_assets` specifically, [`examples/dbt_workspace/definitions.py`](examples/dbt_workspace/definitions.py)
+runs the same zero-code approach against a real dbt project
+([`examples/jaffle_shop/`](examples/jaffle_shop/)) instead of a hand-written
+toy asset -- see [docs/design.md](docs/design.md) for the full verification
+writeup (one span per dbt run, `name=` support, and a gotcha in generating
+the manifest from the wrong directory).
+
 ## Usage
 
 Same idea against your own pipeline: run your usual Dagster command through

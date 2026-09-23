@@ -22,3 +22,8 @@ TODO.md
 
 # Editor/IDE
 .vscode/
+
+# dbt runtime state (examples/jaffle_shop) -- matches dagster-otel's own .gitignore
+examples/jaffle_shop/target/
+examples/jaffle_shop/logs/
+examples/jaffle_shop/.user.yml
