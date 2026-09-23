@@ -332,3 +332,53 @@ No files found that match the pattern "examples/jaffle_shop/seeds/
 raw_customers.csv"` (doubled path, since `DbtCliResource` invokes dbt with
 `cwd` set to the project dir itself). Regenerating the manifest by `cd`-ing
 into the project dir first (matching the instructions exactly) fixed it.
+
+## Dispatching `@dbt_assets` to `traced_dbt()` (Issue #14)
+
+Closes the gap the previous section left open: `@dbt_assets` used to get one
+span for the whole dbt run (plain `traced()`, since it's just a
+`multi_asset` call under the hood) instead of `dagster-otel`'s finer
+`traced_dbt()` granularity (one child span per dbt model/seed/test).
+
+**The hard part is detection, not dispatch.** `dagster_dbt/asset_decorator.py`
+calls `multi_asset(name=name, specs=specs, check_specs=check_specs,
+can_subset=True, ..., allow_arbitrary_check_specs=True)` -- `specs`/
+`check_specs` alone aren't a reliable signal that a given `multi_asset` call
+came from `@dbt_assets` specifically, since a user's own hand-written
+`@multi_asset(specs=..., check_specs=...)` can pass the same shape of kwargs.
+
+Detection is a call-stack check instead (`_wrap_decorator_factory`'s
+`_called_from_dbt_assets`): confirmed live, `dagster_dbt.asset_decorator`'s
+own `dbt_assets` function is a direct ancestor frame (via `inspect.stack()`)
+of the `multi_asset(...)` call it makes internally. Checked as a
+`(module, function)` **pair**, not "any dagster_dbt frame" -- found while
+prototyping this that `dagster_dbt.cloud.ops` also calls `multi_asset(...)`
+internally, for a completely unrelated feature (Cloud job assets, no dbt
+manifest/specs involved), at its own module import time. A module-only check
+would have misrouted that call through `traced_dbt()` too, which expects the
+dbt-node/asset_key correlation `dbt_assets`-produced compute functions
+actually provide -- reproduced directly in
+`tests/test_dbt_dispatch.py::test_dbt_assets_dispatches_to_traced_dbt`'s own
+setup (importing `dagster_dbt` fresh triggers this exact unrelated call, and
+it's confirmed dispatched to plain `traced`, not `traced_dbt`).
+
+Only checked when `wrapped.__name__ == "multi_asset"` -- `@op`/`@asset`/
+`@asset_check` decoration never pays for the stack walk at all, since
+`dbt_assets` can only ever call `multi_asset`.
+
+**Verified two ways:**
+
+- `tests/test_dbt_dispatch.py`: the real `dagster_dbt.asset_decorator.
+  dbt_assets` call path (a minimal hand-built manifest, no real dbt project
+  needed) with `traced`/`traced_dbt` monkeypatched to record which one gets
+  called; a hand-written `@multi_asset(specs=..., check_specs=...)` with the
+  same kwargs shape confirmed to still get plain `traced`; and a direct
+  precision check of `_called_from_dbt_assets` against a faked
+  `dagster_dbt.asset_decorator`-named module whose function *isn't*
+  `dbt_assets` (standing in for `dagster_dbt.cloud.ops`).
+- The real `examples/jaffle_shop` fixture (Issue #6/#28), end to end against
+  a real Jaeger: 16 spans landed (1 step + 3 assets + 12 checks), the exact
+  same `step -> asset -> check` shape `dagster-otel`'s own manual
+  `@traced_dbt()` produces against the same project -- with zero
+  `@traced()`/`@traced_dbt()` calls anywhere in `examples/dbt_workspace/
+  definitions.py`.
