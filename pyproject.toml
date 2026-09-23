@@ -39,7 +39,16 @@ dependencies = [
     # crashes on a real AssetCheckExecutionContext (AttributeError: no
     # .job_name) on any older dagster-otel -- that support only landed in
     # dagster-otel's own 0.4.0 (dagster-otel#72).
-    "dagster-otel >= 0.4.0",
+    #
+    # >= 0.4.1 specifically for dagster-otel#80/#81: on 0.4.0, concurrent steps
+    # publishing trace context under k8s_job_executor could silently lose one
+    # side's context (a lost-update race in Dagster's own
+    # SqlRunStorage.add_run_tags(), not something patched here) -- since this
+    # package's whole job is applying dagster-otel's @traced() automatically,
+    # every pipeline it instruments inherits whatever dagster-otel version
+    # gets resolved, so this floor has to move in lockstep with dagster-otel's
+    # own fixes, not just its new features.
+    "dagster-otel >= 0.4.1",
     "dagster >= 1.5",
     "opentelemetry-instrumentation",
     # Comes in transitively via opentelemetry-instrumentation, but the decorator-
