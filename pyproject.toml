@@ -61,15 +61,17 @@ dependencies = [
 test = [
     "pytest >= 7",
 ]
-# Only needed to verify dbt_assets rides along on the multi_asset patch (see
-# tests/test_dbt_assets.py) -- not running real dbt, so dbt-duckdb etc. aren't
-# needed, just the dbt_assets decorator itself. If this gets bumped (e.g. by
-# Dependabot), dev/kubernetes/pyproject.toml's dagster-postgres/dagster-k8s pins
-# need to move to the matching dagster patch version too, or the workspace's
-# single shared lock file becomes unresolvable (this and that both requiring a
-# different dagster patch, no version satisfies both).
+# dagster-dbt: needed to verify dbt_assets rides along on the multi_asset patch
+# (tests/test_dbt_assets.py). dbt-duckdb: needed for examples/jaffle_shop's real
+# `dbt build` (Issue #6/#28) -- tests/test_dbt_assets.py itself still doesn't run
+# real dbt, just the decorator. If dagster-dbt gets bumped (e.g. by Dependabot),
+# dev/kubernetes/pyproject.toml's dagster-postgres/dagster-k8s pins need to move to
+# the matching dagster patch version too, or the workspace's single shared lock
+# file becomes unresolvable (this and that both requiring a different dagster
+# patch, no version satisfies both).
 dbt = [
     "dagster-dbt==0.29.23",
+    "dbt-duckdb",
 ]
 lint = [
     "mypy==2.3.1",

@@ -284,3 +284,51 @@ Verified two ways:
 Not yet independently re-verified under `multiprocess`/`k8s_job_executor`
 specifically -- same generic patch mechanism already verified there for the
 other three decorators, but no dedicated real-cluster run for `asset_check`.
+
+## `@dbt_assets` verified against a real dbt project (Issue #6/#28)
+
+`tests/test_dbt_assets.py` only ever proved the *mechanism* this package's
+dbt claim depends on -- that `dagster_dbt.asset_decorator.multi_asset is
+dagster.multi_asset` after instrumenting, using a hand-constructed
+`AssetsDefinition`. Nothing confirmed a real `@dbt_assets` function, built
+from an actual `manifest.json` (real `dbt parse`, not hand-rolled), produces
+a working span end to end.
+
+`examples/jaffle_shop/` (Issue #28) is the same small hand-written dbt
+project as `dagster-otel`'s own `examples/jaffle_shop` (seed -> staging
+model -> mart model, copied -- same author, same license), and
+`examples/dbt_workspace/definitions.py` wraps its `@dbt_assets` function
+with **zero `@traced()`/`@traced_dbt()` calls and no `dagster_otel`/
+`opentelemetry` imports at all** -- the entire point being that this
+package's patching alone should be enough.
+
+Verified live, `opentelemetry-instrument dagster asset materialize -f
+examples/dbt_workspace/definitions.py --select '*'` against a real Jaeger:
+
+- A real span named `jaffle_shop_dbt_assets` landed, confirming the
+  `AssetsDefinition` `dagster_dbt.dbt_assets` actually produces really does
+  get a `traced()`-wrapped compute function when built through the patched
+  `multi_asset` -- not just that the two names are `is`-identical (the
+  narrower thing the existing white-box test already covered).
+- One span per dbt run, ~10-12s duration each across three separate runs --
+  not `dagster-otel`'s finer per-model/per-test `traced_dbt()` granularity
+  (documented, known gap, tracked separately as Issue #14 -- out of scope
+  here, see README's "What's covered" table).
+- `@dbt_assets(..., name="renamed_jaffle_shop")`'s `name=` kwarg (passed
+  through to `multi_asset`, see `_wrap_decorator_factory`'s `span_name`
+  handling) produced a span literally named `renamed_jaffle_shop`, not the
+  Python function's own name -- confirmed against a real dbt run, not just
+  the hand-picked test value `tests/test_op.py`'s equivalent `@op(name=...)`
+  check already used.
+
+One gotcha hit while building the fixture, worth recording since it's easy
+to reproduce by reasoning alone: generating the manifest via `dbt parse
+--project-dir examples/jaffle_shop --profiles-dir examples/jaffle_shop`
+from the repo root (rather than `cd examples/jaffle_shop && dbt parse
+--profiles-dir .`, what `dagster-otel`'s own README instructs) bakes seed
+file paths into the manifest relative to the *invocation* cwd, not the
+project dir -- `dbt build` then fails at materialize time with `IO Error:
+No files found that match the pattern "examples/jaffle_shop/seeds/
+raw_customers.csv"` (doubled path, since `DbtCliResource` invokes dbt with
+`cwd` set to the project dir itself). Regenerating the manifest by `cd`-ing
+into the project dir first (matching the instructions exactly) fixed it.
