@@ -67,8 +67,8 @@ For `@dbt_assets` specifically, [`examples/dbt_workspace/definitions.py`](exampl
 runs the same zero-code approach against a real dbt project
 ([`examples/jaffle_shop/`](examples/jaffle_shop/)) instead of a hand-written
 toy asset -- see [docs/design.md](docs/design.md) for the full verification
-writeup (one span per dbt run, `name=` support, and a gotcha in generating
-the manifest from the wrong directory).
+writeup (per-dbt-node child spans, `name=` support, and a gotcha in
+generating the manifest from the wrong directory).
 
 ## Usage
 
@@ -117,7 +117,7 @@ it's a drop-in prefix, not something specific to `dagster dev`.
 | `@asset` | ✅ Patched -- bare and `@asset(name=...)` forms |
 | `@multi_asset` | ✅ Patched |
 | `@asset_check` | ✅ Patched -- `@asset_check(asset=...)` and `@asset_check(asset=..., name=...)` forms. Requires `dagster-otel >= 0.4.0` (its `AssetCheckExecutionContext` support). |
-| `@dbt_assets` (`dagster_dbt`) | ✅ Covered for free -- it calls `multi_asset` internally, see [docs/design.md](docs/design.md). One span per dbt run (not `dagster-otel`'s finer per-model `@traced_dbt()` granularity) -- [Issue #6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6) tracks verifying this against a real dbt project end to end. |
+| `@dbt_assets` (`dagster_dbt`) | ✅ Patched -- detected via a call-stack check (not just "it calls `multi_asset` internally", since kwargs alone can't distinguish it from a hand-written `@multi_asset(specs=...)`) and dispatched to `dagster_otel.dbt.traced_dbt()`, matching a manual `@traced_dbt()`'s per-dbt-node child spans -- not just one span for the whole dbt run. See [docs/design.md](docs/design.md). |
 | `@graph_asset` | ⬜ Deliberately not patched -- its decorated function never receives a runtime `context` at all, so `@traced()` doesn't apply to it. Tracing the ops it composes (which already works, no changes needed) already covers everything that actually executes. See [docs/design.md](docs/design.md). |
 
 ## Configuration
@@ -217,10 +217,10 @@ for bugs, missing coverage, or a backend that doesn't work as expected.
 - [x] `@dbt_assets` covered for free -- it calls `multi_asset` internally
 - [x] `opentelemetry_instrumentor` entry point resolution verified
 - [x] Warn when `dagster_dbt` is already imported before `instrument()` runs
+- [x] Verify `@dbt_assets` end-to-end against a real dbt project ([#6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6), [#28](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/28))
+- [x] Dispatch `@dbt_assets` calls to `traced_dbt()` for per-dbt-node span granularity ([#14](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/14))
+- [x] Test that exceptions propagate correctly through the patched decorator ([#11](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/11))
 - [ ] Combined demo: `dagster-prometheus-exporter` metrics + zero-code traces, through Grafana Tempo ([#24](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/24))
-- [ ] Dispatch `@dbt_assets` calls to `traced_dbt()` for per-dbt-node span granularity ([#14](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/14))
-- [ ] Verify `@dbt_assets` end-to-end against a real dbt project ([#6](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/6))
-- [ ] Test that exceptions propagate correctly through the patched decorator ([#11](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/11))
 - [ ] Test the parameterized-decorator-without-name dispatch branch ([#10](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/10))
 - [ ] Test `uninstrument()` for `@asset`/`@multi_asset`, not just `@op` ([#9](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/9))
 
