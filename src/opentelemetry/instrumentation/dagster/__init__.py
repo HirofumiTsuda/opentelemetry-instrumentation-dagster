@@ -35,6 +35,25 @@ from .version import __version__
 __all__ = ["DagsterInstrumentor", "__version__"]
 
 
+#: Every dagster decorator whose compute function runs as a step and gets
+#: traced(). All share one of two shapes `_wrap_decorator_factory` already
+#: handles: bare-or-parameterized (`op`, `asset`, `observable_source_asset`) or
+#: keyword-only (`multi_asset`, `asset_check`, `multi_asset_check`,
+#: `multi_observable_source_asset`). The last three were added in Issue #36, each
+#: confirmed against a real run with a manual @traced() first. `graph_asset` and
+#: `graph_multi_asset` are deliberately absent: their function composes ops at
+#: definition time and never runs as a step (see docs/design.md).
+_PATCHED_DECORATORS = (
+    "op",
+    "asset",
+    "multi_asset",
+    "asset_check",
+    "multi_asset_check",
+    "observable_source_asset",
+    "multi_observable_source_asset",
+)
+
+
 class DagsterInstrumentor(BaseInstrumentor):
     def instrumentation_dependencies(self):
         return ("dagster >= 1.5",)
@@ -61,13 +80,9 @@ class DagsterInstrumentor(BaseInstrumentor):
                 stacklevel=2,
             )
 
-        wrapt.wrap_function_wrapper("dagster", "op", _wrap_decorator_factory)
-        wrapt.wrap_function_wrapper("dagster", "asset", _wrap_decorator_factory)
-        wrapt.wrap_function_wrapper("dagster", "multi_asset", _wrap_decorator_factory)
-        wrapt.wrap_function_wrapper("dagster", "asset_check", _wrap_decorator_factory)
+        for name in _PATCHED_DECORATORS:
+            wrapt.wrap_function_wrapper("dagster", name, _wrap_decorator_factory)
 
     def _uninstrument(self, **kwargs: Any) -> None:
-        unwrap(dagster, "op")
-        unwrap(dagster, "asset")
-        unwrap(dagster, "multi_asset")
-        unwrap(dagster, "asset_check")
+        for name in _PATCHED_DECORATORS:
+            unwrap(dagster, name)

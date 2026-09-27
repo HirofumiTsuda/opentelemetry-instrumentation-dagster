@@ -410,3 +410,32 @@ The new tests run with the instrumentor active through real Dagster. All four fa
 against `dagster-otel` 0.4.1 and pass against 0.5.0. The only existing test
 expectations that changed are the two asset-check span names in
 `tests/test_asset_check.py` (`my_asset_my_check`, `another_asset_renamed_check`).
+
+## More decorators: `multi_asset_check`, `observable_source_asset`, `multi_observable_source_asset` (Issue #36)
+
+`_instrument()` patched four factories (`op`, `asset`, `multi_asset`, `asset_check`).
+So a pipeline using `@multi_asset_check` got spans for its assets but none for its
+checks, with nothing saying anything was missing. The issue also asked for an explicit
+in/out decision on the remaining compute-function decorators, so users don't have to
+guess what's traced.
+
+Each candidate was first checked with a manual `@traced()` on real Dagster 1.13.22 +
+dagster-otel 0.5.0, before patching it:
+
+| Decorator | Manual `@traced()` | Shape | Decision |
+| --- | --- | --- | --- |
+| `multi_asset_check` | span, `dagster.asset_check_keys=a:c1,a:c2` | keyword-only (`*, specs, ...`) | patched |
+| `observable_source_asset` | span in an observation job, `dagster.asset_keys=src` | bare or parameterized, like `asset` | patched |
+| `multi_observable_source_asset` | span, `dagster.asset_keys=s1,s2` | keyword-only | patched |
+| `graph_multi_asset` | n/a | composition function, never runs as a step | not patched, same reasoning as `graph_asset` above |
+
+All three already fit one of `_wrap_decorator_factory`'s two branches, so the change is
+only the patch list, now one `_PATCHED_DECORATORS` tuple shared by `_instrument()` and
+`_uninstrument()` so the two can't drift. `observable_source_asset` and
+`multi_observable_source_asset` are beta in Dagster and emit its beta warning on
+decoration. That's Dagster's own warning, identical with and without instrumentation.
+
+`tests/test_more_decorators.py` runs each through real Dagster with the instrumentor
+active, including both `observable_source_asset` forms and an uninstrument check. Four
+of those tests fail without the new patch entries. The uninstrument one passes either
+way.
