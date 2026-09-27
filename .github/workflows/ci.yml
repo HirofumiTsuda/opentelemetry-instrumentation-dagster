@@ -21,6 +21,23 @@ jobs:
 
       - run: uv run pytest
 
+  # Runs the same suite against the declared Dagster floor's newest patch, so the
+  # floor can't silently drift from reality (dagster-otel#86 is how that happened
+  # there). dagster-dbt is left unpinned so the resolver picks the release matching
+  # dagster 1.10 (it pins dagster 1:1). Plain venv + `uv pip`, not `uv sync`: the
+  # lockfile pins the latest Dagster.
+  test-dagster-floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.1.0
+
+      - run: uv venv --python 3.10 .venv-floor
+      - run: VIRTUAL_ENV=.venv-floor uv pip install -e . "dagster==1.10.*" dagster-dbt "pytest>=7"
+      - run: .venv-floor/bin/python -c "import dagster, dagster_dbt; print(dagster.__version__, dagster_dbt.__version__)"
+      - run: .venv-floor/bin/python -m pytest
+
   lint:
     runs-on: ubuntu-latest
     steps:

@@ -198,9 +198,10 @@ full reasoning and the negative-control verification.
 ## Compatibility
 
 Depends on [`dagster-otel`](https://github.com/HirofumiTsuda/dagster-otel)
-and `dagster >= 1.5`, same floor as that project. Not independently
-version-matrix-tested beyond what `dagster-otel` itself covers -- if you hit
-an incompatibility, [open an issue](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/new).
+`>= 0.5.0` and `dagster >= 1.10`, the same Dagster floor as that project
+([dagster-otel#86](https://github.com/HirofumiTsuda/dagster-otel/issues/86)).
+CI runs the test suite against both the locked Dagster version and the newest
+1.10 patch, with its matching `dagster-dbt`. If you hit an incompatibility, [open an issue](https://github.com/HirofumiTsuda/opentelemetry-instrumentation-dagster/issues/new).
 
 ## Why a separate package
 

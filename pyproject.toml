@@ -56,7 +56,12 @@ dependencies = [
     # rather than the Python function (#35, dagster-otel#95) -- the last one is
     # also why _wrapping.py no longer passes `name=` through as a span name.
     "dagster-otel >= 0.5.0",
-    "dagster >= 1.5",
+    # Same floor as dagster-otel (dagster-otel#86): its own `dagster >= 1.5` was
+    # never true (import fails below 1.10), and this package can't work without it.
+    # Also what instrumentation_dependencies() reports, so `opentelemetry-instrument`
+    # skips this instrumentor on an older Dagster instead of patching one that
+    # dagster-otel can't trace. CI's `test-dagster-floor` job runs the suite on 1.10.
+    "dagster >= 1.10",
     "opentelemetry-instrumentation",
     # Comes in transitively via opentelemetry-instrumentation, but the decorator-
     # wrapping code imports it directly (wrapt.wrap_function_wrapper), so it's
