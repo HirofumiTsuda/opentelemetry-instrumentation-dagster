@@ -56,7 +56,8 @@ _PATCHED_DECORATORS = (
 
 class DagsterInstrumentor(BaseInstrumentor):
     def instrumentation_dependencies(self):
-        return ("dagster >= 1.5",)
+        # Must match pyproject.toml's dagster floor -- see its comment there.
+        return ("dagster >= 1.10",)
 
     def _instrument(self, **kwargs: Any) -> None:
         # dagster_dbt.asset_decorator does `from dagster import ... multi_asset ...`

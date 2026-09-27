@@ -2330,7 +2330,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dagster", specifier = ">=1.5" },
+    { name = "dagster", specifier = ">=1.10" },
     { name = "dagster-otel", specifier = ">=0.5.0" },
     { name = "opentelemetry-instrumentation" },
     { name = "wrapt" },

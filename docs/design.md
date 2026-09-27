@@ -439,3 +439,21 @@ decoration. That's Dagster's own warning, identical with and without instrumenta
 active, including both `observable_source_asset` forms and an uninstrument check. Four
 of those tests fail without the new patch entries. The uninstrument one passes either
 way.
+
+## Dagster version floor: `>= 1.10` (dagster-otel#86)
+
+This package declared `dagster >= 1.5` in both `pyproject.toml` and
+`instrumentation_dependencies()`, copying dagster-otel's floor. That floor turned out to
+be wrong: `import dagster_otel` fails on 1.5/1.6, and `dagster_otel.dbt` fails below 1.10.
+dagster-otel moved to `>= 1.10`, and this package follows, in both places.
+`instrumentation_dependencies()` matters beyond pip. `opentelemetry-instrument` checks it
+at startup and skips an instrumentor whose target is too old. A stale `>= 1.5` would
+have let it patch a Dagster that dagster-otel can't trace.
+
+Checked on dagster 1.10.21 with the resolver-matched dagster-dbt 0.26.21, in a fresh
+Python 3.10 venv: the full suite passes (35 tests). That includes #38's
+`multi_asset_check`/`observable_source_asset`/`multi_observable_source_asset` patches
+and the `@dbt_assets` dispatch tests. Without dagster-dbt installed, only the 4
+dbt tests fail, on `ModuleNotFoundError`. CI's new `test-dagster-floor` job runs the
+same setup.
+
