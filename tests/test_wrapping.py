@@ -5,7 +5,7 @@ involved (traced() only creates a span when the wrapped function is actually
 without needing tests/conftest.py's span-capturing fixture at all).
 
 The real per-decorator behavior (bare @op/@asset, @multi_asset's
-keyword-only shape, name= passthrough, uninstrument) is exercised against
+keyword-only shape, uninstrument) is exercised against
 real Dagster execution in test_op.py/test_asset.py/test_multi_asset.py --
 this file is specifically about the dispatch branching itself."""
 
@@ -76,34 +76,17 @@ def test_parameterized_form_defers_wrapping_until_decorator_is_applied() -> None
     assert result[1].__wrapped__ is _fake_compute_fn
 
 
-def test_name_kwarg_becomes_traced_span_name() -> None:
-    """name=... is passed through as traced()'s span_name -- confirmed
-    against a real @op(name="renamed_op") run in test_op.py; this asserts
-    the same thing at the dispatch-logic level, without needing a real run."""
+def test_parameterized_form_wraps_the_compute_function() -> None:
+    """Parameterized form -- the compute function is wrapped with traced(), with no
+    span name: `name=` is no longer passed through (Issue #35), since dagster-otel
+    0.5.0's default already follows the node name. The span names themselves are
+    asserted by real runs in test_op.py/test_asset.py/test_asset_check.py and
+    test_dagster_otel_0_5_fixes.py."""
 
     def fake_wrapped(**kwargs):
         return lambda fn: fn
 
-    patched_decorator = _wrap_decorator_factory(
-        fake_wrapped, None, (), {"name": "custom_span_name"}
-    )
-    traced_fn = patched_decorator(_fake_compute_fn)
-
-    # traced()'s own inner wrapper closes over `name` -- not directly
-    # inspectable, but __name__ is preserved via functools.wraps either way,
-    # so this only confirms wrapping happened; the actual span-name behavior
-    # is the real-run assertion in test_op.py::test_parameterized_op_gets_a_span.
-    assert traced_fn.__wrapped__ is _fake_compute_fn
-
-
-def test_no_name_kwarg_means_traced_gets_none() -> None:
-    """Parameterized form with some other kwarg, no name= -- traced(None) is
-    called, relying on traced()'s own fallback to the function's __name__."""
-
-    def fake_wrapped(**kwargs):
-        return lambda fn: fn
-
-    patched_decorator = _wrap_decorator_factory(fake_wrapped, None, (), {"retry_policy": object()})
+    patched_decorator = _wrap_decorator_factory(fake_wrapped, None, (), {"name": "renamed_op"})
     traced_fn = patched_decorator(_fake_compute_fn)
 
     assert traced_fn.__wrapped__ is _fake_compute_fn
