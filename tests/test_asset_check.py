@@ -36,9 +36,12 @@ def test_asset_check_gets_a_span(
     result = dagster.materialize([my_asset, my_check])
     assert result.success
 
+    # An asset check's span is named after its op, `<asset>_<check>` (dagster-otel's
+    # default since 0.5.0, the same name the step has in Dagster's UI), not the bare
+    # check name.
     span_names = [span.name for span in spans.get_finished_spans()]
     assert "my_asset" in span_names
-    assert "my_check" in span_names
+    assert "my_asset_my_check" in span_names
 
 
 def test_named_asset_check_gets_a_span(
@@ -56,4 +59,4 @@ def test_named_asset_check_gets_a_span(
     assert result.success
 
     span_names = [span.name for span in spans.get_finished_spans()]
-    assert "renamed_check" in span_names
+    assert "another_asset_renamed_check" in span_names

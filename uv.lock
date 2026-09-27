@@ -782,7 +782,7 @@ wheels = [
 
 [[package]]
 name = "dagster-otel"
-version = "0.4.1"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dagster" },
@@ -791,9 +791,9 @@ dependencies = [
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/20/cb/1ab4721df827d3d264adaf908ca7175ecb9c01d6447e2881363e5d6bda2d/dagster_otel-0.4.1.tar.gz", hash = "sha256:c7e6ef6f88c3051f2b72b5bbf76fae1f9549de36614e04eca25ade39bdfb7f62", size = 759279, upload-time = "2026-09-23T04:47:30.081Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f2/b7/caf55dccd477a558064b73c00f0d2bc0f749ba8eaa7c3ed1794358527076/dagster_otel-0.5.0.tar.gz", hash = "sha256:be56a6abefdab177087e67d58f062b0eb5249f4e6c7c4580c638fd084267af89", size = 772165, upload-time = "2026-09-27T05:51:56.783Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/73/08/350570379c5c249e982f23bd6fb14b68c6f393b380ceaf0909eace76b2ad/dagster_otel-0.4.1-py3-none-any.whl", hash = "sha256:081c48631da2670a65af83308cbd3a1b68247893c298254c04548e6497b06e56", size = 40402, upload-time = "2026-09-23T04:47:28.508Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/bf/5d2a1fc7e21fa096fdb0044c0c756255f217367ab49f14ce28a5afde7f80/dagster_otel-0.5.0-py3-none-any.whl", hash = "sha256:34e9b5ab97f52fddfc073cc08ae80804735d7d6c4306a1955ccc3035fac36946", size = 43136, upload-time = "2026-09-27T05:51:55.358Z" },
 ]
 
 [[package]]
@@ -2331,7 +2331,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "dagster", specifier = ">=1.5" },
-    { name = "dagster-otel", specifier = ">=0.4.1" },
+    { name = "dagster-otel", specifier = ">=0.5.0" },
     { name = "opentelemetry-instrumentation" },
     { name = "wrapt" },
 ]

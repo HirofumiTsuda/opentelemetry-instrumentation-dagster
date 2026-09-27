@@ -77,13 +77,13 @@ def _wrap_decorator_factory(
     needed. See docs/design.md's "Sketch of the decorator wrapper" for the
     reasoning.
 
-    Passes a `name=...` override through to `traced(span_name=...)` when given
-    -- confirmed against a real @op(name="renamed_op") run that traced()'s own
-    default (falling back to the compute function's __name__) otherwise
-    produces a span named after the Python function, not the name Dagster
-    actually gives the op/step. Manual @traced() usage can't fix this itself
-    (decorator order means it never sees @op's own kwargs); this package can,
-    since it's the thing patching dagster.op(name=...) directly.
+    No span name is passed: since dagster-otel 0.5.0 (dagster-otel#95),
+    traced()'s default is the node Dagster is actually running
+    (`op_handle.name`, resolved at run time), which already follows `name=`,
+    `key=`/`key_prefix=`, asset-check op names and `.alias()`. This package used
+    to pass `name=` through as `span_name`, which only covered `name=` (Issue
+    #35) and made an asset check's span its bare check name while manual
+    @traced() gave `<asset>_<check>`; dropping it keeps the two identical.
 
     A `multi_asset` call that's really a `@dbt_assets`-produced one (Issue
     #14) gets `traced_dbt()` instead of plain `traced()` -- one child span per
@@ -94,12 +94,11 @@ def _wrap_decorator_factory(
         return wrapped(traced()(fn), *rest, **kwargs)
 
     real_decorator = wrapped(*args, **kwargs)
-    span_name = kwargs.get("name")
     trace_factory = (
         traced_dbt if wrapped.__name__ == "multi_asset" and _called_from_dbt_assets() else traced
     )
 
     def patched_decorator(fn: Callable[..., Any]) -> Any:
-        return real_decorator(trace_factory(span_name)(fn))
+        return real_decorator(trace_factory()(fn))
 
     return patched_decorator

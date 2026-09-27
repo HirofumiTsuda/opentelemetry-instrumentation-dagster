@@ -48,7 +48,14 @@ dependencies = [
     # every pipeline it instruments inherits whatever dagster-otel version
     # gets resolved, so this floor has to move in lockstep with dagster-otel's
     # own fixes, not just its new features.
-    "dagster-otel >= 0.4.1",
+    #
+    # >= 0.5.0 for four traced() fixes this package's own issues traced back to:
+    # context-less compute functions (#32, dagster-otel#94), async def (#33,
+    # dagster-otel#93), already-traced functions wrapped twice (#34,
+    # dagster-otel#96), and the default span name following the Dagster node
+    # rather than the Python function (#35, dagster-otel#95) -- the last one is
+    # also why _wrapping.py no longer passes `name=` through as a span name.
+    "dagster-otel >= 0.5.0",
     "dagster >= 1.5",
     "opentelemetry-instrumentation",
     # Comes in transitively via opentelemetry-instrumentation, but the decorator-

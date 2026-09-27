@@ -172,11 +172,12 @@ def _wrap_decorator_factory(wrapped, instance, args, kwargs):
 
 Needs verifying against a real Dagster run before trusting it, same as
 everything else in `dagster-otel`'s own history -- types alone don't confirm
-correctness here. (The real implementation additionally passes a `name=...`
-override through to `traced(span_name=...)` when given -- confirmed against
-a real `@op(name="renamed_op")` run that `traced()`'s own default otherwise
-produces a span named after the Python function, not the name Dagster
-actually gives the op/step.)
+correctness here. (The real implementation used to additionally pass a
+`name=...` override through to `traced(span_name=...)` when given -- confirmed
+against a real `@op(name="renamed_op")` run that `traced()`'s own default
+otherwise produced a span named after the Python function, not the name
+Dagster actually gives the op/step. Removed once dagster-otel 0.5.0 made that
+default the node name itself; see "Adopting dagster-otel 0.5.0" below.)
 
 ### `graph_asset` is out of scope -- deliberately, not by oversight
 
@@ -315,8 +316,9 @@ examples/dbt_workspace/definitions.py --select '*'` against a real Jaeger:
   (documented, known gap, tracked separately as Issue #14 -- out of scope
   here, see README's "What's covered" table).
 - `@dbt_assets(..., name="renamed_jaffle_shop")`'s `name=` kwarg (passed
-  through to `multi_asset`, see `_wrap_decorator_factory`'s `span_name`
-  handling) produced a span literally named `renamed_jaffle_shop`, not the
+  through to `multi_asset`; at the time via `_wrap_decorator_factory`'s
+  `span_name` handling, since dagster-otel 0.5.0 via `traced()`'s node-name
+  default) produced a span literally named `renamed_jaffle_shop`, not the
   Python function's own name -- confirmed against a real dbt run, not just
   the hand-picked test value `tests/test_op.py`'s equivalent `@op(name=...)`
   check already used.
@@ -382,3 +384,29 @@ Only checked when `wrapped.__name__ == "multi_asset"` -- `@op`/`@asset`/
   `@traced_dbt()` produces against the same project -- with zero
   `@traced()`/`@traced_dbt()` calls anywhere in `examples/dbt_workspace/
   definitions.py`.
+
+## Adopting dagster-otel 0.5.0 (Issues #32-#35)
+
+A review of this package (2026-09-26) found four failures that all traced back to
+`dagster-otel`'s `traced()` itself. They matter more here than for manual use, because
+this package applies `traced()` to code the user never opted in. Each was fixed
+upstream and shipped in `dagster-otel` 0.5.0, so this package's fix is the dependency
+floor (`dagster-otel >= 0.5.0`) plus regression tests
+(`tests/test_dagster_otel_0_5_fixes.py`), not local workarounds:
+
+| Issue here | Upstream | What broke under auto-instrumentation |
+| --- | --- | --- |
+| #32 | dagster-otel#94 | Every context-less `@asset def x(): ...` failed with `missing 1 required positional argument: 'context'` |
+| #33 | dagster-otel#93 | Every `async def` op/asset failed with `cannot pickle 'coroutine' object` |
+| #34 | dagster-otel#96 | A function already under a manual `@traced()` got two spans, and downstream steps parented onto the inner one |
+| #35 | dagster-otel#95 | Span names followed the Python function, so `key=` factories all shared one name |
+
+For #35, `_wrap_decorator_factory` also stopped passing `name=` through as `span_name`.
+`traced()`'s default is now the running node's `op_handle.name`, which already follows
+`name=`. Keeping the passthrough would also have made auto-instrumented asset checks
+diverge from manual ones: the bare check name vs. `<asset>_<check>`.
+
+The new tests run with the instrumentor active through real Dagster. All four fail
+against `dagster-otel` 0.4.1 and pass against 0.5.0. The only existing test
+expectations that changed are the two asset-check span names in
+`tests/test_asset_check.py` (`my_asset_my_check`, `another_asset_renamed_check`).

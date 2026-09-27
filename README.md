@@ -114,11 +114,19 @@ it's a drop-in prefix, not something specific to `dagster dev`.
 | Decorator | Status |
 | --- | --- |
 | `@op` | ✅ Patched -- bare and `@op(name=...)` forms |
-| `@asset` | ✅ Patched -- bare and `@asset(name=...)` forms |
+| `@asset` | ✅ Patched -- bare and `@asset(name=...)`/`key=`/`key_prefix=` forms |
 | `@multi_asset` | ✅ Patched |
-| `@asset_check` | ✅ Patched -- `@asset_check(asset=...)` and `@asset_check(asset=..., name=...)` forms. Requires `dagster-otel >= 0.4.0` (its `AssetCheckExecutionContext` support). |
+| `@asset_check` | ✅ Patched -- `@asset_check(asset=...)` and `@asset_check(asset=..., name=...)` forms. The span is named after the check's op, `<asset>_<check>`, the same as the step in Dagster's UI. |
 | `@dbt_assets` (`dagster_dbt`) | ✅ Patched -- detected via a call-stack check (not just "it calls `multi_asset` internally", since kwargs alone can't distinguish it from a hand-written `@multi_asset(specs=...)`) and dispatched to `dagster_otel.dbt.traced_dbt()`, matching a manual `@traced_dbt()`'s per-dbt-node child spans -- not just one span for the whole dbt run. See [docs/design.md](docs/design.md). |
 | `@graph_asset` | ⬜ Deliberately not patched -- its decorated function never receives a runtime `context` at all, so `@traced()` doesn't apply to it. Tracing the ops it composes (which already works, no changes needed) already covers everything that actually executes. See [docs/design.md](docs/design.md). |
+
+Across all of the above:
+
+- **Span names** follow the node name Dagster actually runs, not the Python function's name. That covers `name=`, `key=`/`key_prefix=` (e.g. `warehouse__customers` for an asset-factory output), `@multi_asset(name=...)`, and `.alias()`.
+- **Compute functions without a `context` parameter** (`@asset def x(): ...`) and **`async def` functions** (coroutines and async generators) are traced like any other.
+- **A function you already decorated with `@traced()`/`@traced_dbt()`** isn't wrapped a second time. Your own decorator, and its span name, win.
+
+All of this comes from `dagster-otel >= 0.5.0`, which this package requires.
 
 ## Configuration
 
