@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: astral-sh/setup-uv@v10.2.0
 
       # dbt group: tests/test_dbt_assets.py imports dagster_dbt (verifying dbt_assets
       # shares the patched multi_asset, not running real dbt -- see that file's own
@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: astral-sh/setup-uv@v10.2.0
 
       - run: uv venv --python 3.10 .venv-floor
       - run: VIRTUAL_ENV=.venv-floor uv pip install -e . "dagster==1.10.*" dagster-dbt "pytest>=7"
@@ -43,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: astral-sh/setup-uv@v10.2.0
 
       - run: uvx ruff@0.16.7 check .
       - run: uvx ruff@0.16.7 format --check .
