@@ -86,7 +86,7 @@ dbt = [
     "dbt-duckdb",
 ]
 lint = [
-    "mypy==2.3.1",
+    "mypy==2.4.0",
     "pyright==1.1.414",
 ]
 
